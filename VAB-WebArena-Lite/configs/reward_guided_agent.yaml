@@ -1,0 +1,18 @@
+{
+  "intro": "You are a web agent that can interact with web pages. Your goal is to complete the given task by taking appropriate actions.",
+  "examples": [
+    [
+      "Welcome to the homepage. You can see a search bar and navigation menu. Search for a specific product.",
+      "I will click on the search input field to begin searching for the product."
+    ]
+  ],
+  "template": "Objective: {objective}\nURL: {url}\nObservation: {observation}\nPrevious Action: {previous_action}\n\nProvide the next action in this EXACT format:\n\n```\nclick [123]\n```\n\nValid actions (MUST use square brackets):\n- click [element_id] - example: click [123]\n- type [element_id] [text] [enter_flag] - example: type [123] [search] [1]\n- goto [url] - example: goto [http://localhost:7770/shopping]\n- scroll [up|down] - example: scroll [down]\n- press [key] - example: press [Enter]\n- new_tab\n- go_back\n- go_forward\n\nIMPORTANT: Your response MUST end with the action in the format above, with the action wrapped in ``` ``` markers!",
+  "meta_data": {
+    "prompt_constructor": "CoTPromptConstructor",
+    "task_name": "reward_guided_web_agent",
+    "description": "Reward-guided Trajectory Search Agent for WebArena Lite",
+    "answer_phrase": "```",
+    "keywords": ["objective", "url", "observation", "previous_action"],
+    "action_splitter": "```"
+  }
+}

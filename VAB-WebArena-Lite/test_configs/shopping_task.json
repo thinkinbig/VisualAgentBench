@@ -1,0 +1,21 @@
+{
+  "task_name": "Shopping Task",
+  "intent": "Navigate to the shopping page and search for a specific product",
+  "meta_data": {
+    "website": "shopping.example.com",
+    "target_product": "laptop",
+    "budget": "$1000",
+    "category": "electronics"
+  },
+  "expected_actions": [
+    "Navigate to shopping page",
+    "Search for laptop",
+    "Filter by price under $1000",
+    "Select a suitable product"
+  ],
+  "success_criteria": [
+    "Successfully navigated to shopping page",
+    "Found relevant products within budget",
+    "Product selection made"
+  ]
+}
