@@ -6,12 +6,15 @@ from typing import Any, Dict, List, Optional, Tuple, Union, Callable
 from browser_env.actions import Action
 from browser_env.utils import StateInfo, Observation
 from browser_env import Trajectory
+from collections import defaultdict
 
 from agent.agent import Agent
 from .models import SearchConfig, RewardSignal, SearchNode, SearchResult, PerformanceMetrics
 from .enums import SearchType, ActionType, TaskType
 from .reward_model import RewardModel, LLMBasedRewardModel, HybridRewardModel
 from .search_strategy import SearchStrategy, BeamSearch, MonteCarloSearch, AStarSearch
+from .prompts import get_conversation_messages, get_conversation_messages_with_assistant
+from llms import generate_from_openai_chat_completion
 
 logger = logging.getLogger(__name__)
 
@@ -85,7 +88,7 @@ class RewardGuidedSearchAgent(Agent):
                    trajectory: Trajectory, 
                    intent: str, 
                    meta_data: Any) -> Action:
-        """Generate next action using reward-guided search"""
+        """Generate next action using reward-guided search following WebSpherd approach"""
         
         start_time = time.time()
         
@@ -100,34 +103,269 @@ class RewardGuidedSearchAgent(Agent):
         cached_result = self._get_cached_result(cache_key)
         
         if cached_result:
-            self.search_stats["cache_hits"] += 1
-            logger.info("Using cached search result")
-            return self._extract_next_action_from_path(cached_result.path, trajectory)
+            return cached_result
         
-        # Perform search
+        # Step 1: Generate action candidates using nucleus sampling (WebSpherd approach)
+        action_candidates = self._generate_action_candidates(current_state, intent, meta_data)
+        
+        if not action_candidates:
+            logger.warning("No action candidates generated, using fallback")
+            return self._create_fallback_action()
+        
+        # Step 2: Score each candidate action using reward model
+        scored_candidates = self._score_action_candidates(action_candidates, current_state, intent, meta_data)
+        
+        # Step 3: Select best action (handle ties by frequency)
+        best_action = self._select_best_action(scored_candidates)
+        
+        # Step 4: Refinement process (up to 2 times)
+        refined_action = self._refine_action(best_action, current_state, intent, meta_data, trajectory)
+        
+        # Cache the result
+        self._cache_result(cache_key, refined_action)
+        
+        # Update statistics
+        search_time = time.time() - start_time
+        self._update_search_statistics(search_time, True)
+        
+        return refined_action
+    
+    def _generate_action_candidates(self, 
+                                  state: StateInfo, 
+                                  intent: str, 
+                                  meta_data: Any) -> List[Action]:
+        """Generate action candidates using nucleus sampling (WebSpherd approach)"""
+        
+        candidates = []
+        action_frequencies = defaultdict(int)
+        
+        # Sample 20 output sequences using nucleus sampling with temperature 1.0
+        for _ in range(20):
+            try:
+                # Generate action using nucleus sampling
+                action = self._generate_action_with_nucleus_sampling(state, intent, meta_data)
+                if action:
+                    candidates.append(action)
+                    action_key = self._get_action_key(action)
+                    action_frequencies[action_key] += 1
+                    
+            except Exception as e:
+                logger.warning(f"Error in nucleus sampling iteration {_}: {e}")
+                continue
+        
+        # Select top-n most frequent actions as candidates
+        top_n = min(10, len(action_frequencies))  # Top 10 or all if less
+        sorted_actions = sorted(action_frequencies.items(), key=lambda x: x[1], reverse=True)
+        
+        top_candidates = []
+        for action_key, frequency in sorted_actions[:top_n]:
+            # Find the first occurrence of this action in candidates
+            for candidate in candidates:
+                if self._get_action_key(candidate) == action_key:
+                    top_candidates.append((candidate, frequency))
+                    break
+        
+        logger.info(f"Generated {len(top_candidates)} action candidates with frequencies: {dict(top_candidates)}")
+        return top_candidates
+    
+    def _generate_action_with_nucleus_sampling(self, 
+                                            state: StateInfo, 
+                                            intent: str, 
+                                            meta_data: Any) -> Optional[Action]:
+        """Generate a single action using nucleus sampling"""
+        
         try:
-            search_result = self._perform_search(current_state, intent, meta_data)
-            
-            # Cache the result
-            self._cache_search_result(cache_key, search_result)
-            
-            # Update statistics
-            search_time = time.time() - start_time
-            self.search_stats["total_searches"] += 1
-            self.search_stats["average_search_time"] = (
-                (self.search_stats["average_search_time"] * (self.search_stats["total_searches"] - 1) + search_time) /
-                self.search_stats["total_searches"]
+            # Get conversation messages from prompts module
+            messages = get_conversation_messages(
+                prompt_type="action_generation",
+                role="action_generator",
+                state=state,
+                intent=intent,
+                meta_data=meta_data
             )
             
-            if search_result.path:
-                self.search_stats["successful_searches"] += 1
+            response = generate_from_openai_chat_completion(
+                model=self.config.llm_model,
+                messages=messages,
+                temperature=1.0,  # High temperature for diversity
+                max_tokens=100,
+                top_p=0.9  # Nucleus sampling
+            )
             
-            # Extract and return next action
-            return self._extract_next_action_from_path(search_result.path, trajectory)
+            # Parse response to extract action
+            action = self._parse_action_response(response, state)
+            return action
             
         except Exception as e:
-            logger.error(f"Search failed: {e}")
-            return self._create_fallback_action()
+            logger.error(f"Error in nucleus sampling: {e}")
+            return None
+    
+    def _score_action_candidates(self, 
+                               candidates: List[Tuple[Action, int]], 
+                               state: StateInfo, 
+                               intent: str, 
+                               meta_data: Any) -> List[Tuple[Action, float, int]]:
+        """Score each candidate action using the reward model"""
+        
+        scored_candidates = []
+        
+        for action, frequency in candidates:
+            try:
+                # Compute reward for this action
+                reward_signal = self.reward_model.compute_reward(
+                    state=state,
+                    action=action,
+                    context={"intent": intent, "meta_data": meta_data}
+                )
+                
+                scored_candidates.append((action, reward_signal.value, frequency))
+                
+            except Exception as e:
+                logger.warning(f"Error scoring action {action}: {e}")
+                # Assign low reward for failed scoring
+                scored_candidates.append((action, -1.0, frequency))
+        
+        # Sort by reward score (descending)
+        scored_candidates.sort(key=lambda x: x[1], reverse=True)
+        
+        logger.info(f"Scored {len(scored_candidates)} candidates")
+        return scored_candidates
+    
+    def _select_best_action(self, 
+                           scored_candidates: List[Tuple[Action, float, int]]) -> Action:
+        """Select best action, handling ties by frequency (WebSpherd approach)"""
+        
+        if not scored_candidates:
+            raise ValueError("No scored candidates provided")
+        
+        # Group actions by reward score
+        score_groups = defaultdict(list)
+        for action, score, frequency in scored_candidates:
+            score_groups[score].append((action, frequency))
+        
+        # Get the highest reward score
+        best_score = max(score_groups.keys())
+        best_actions = score_groups[best_score]
+        
+        if len(best_actions) == 1:
+            # Single best action
+            return best_actions[0][0]
+        else:
+            # Multiple actions with same score, select by frequency
+            best_action = max(best_actions, key=lambda x: x[1])
+            logger.info(f"Tie broken by frequency: selected action with frequency {best_action[1]}")
+            return best_action[0]
+    
+    def _refine_action(self, 
+                      action: Action, 
+                      state: StateInfo, 
+                      intent: str, 
+                      meta_data: Any, 
+                      trajectory: Trajectory) -> Action:
+        """Refine action using reward model feedback (WebSpherd approach)"""
+        
+        best_action = action
+        best_reward = self.reward_model.compute_reward(state, action, context={"intent": intent, "meta_data": meta_data}).value
+        
+        # Refinement up to 2 times
+        for refinement_step in range(2):
+            try:
+                # Get reward model's thought and checklist (excluding actual score)
+                feedback = self._get_reward_model_feedback(state, action, intent, meta_data)
+                
+                if not feedback:
+                    break
+                
+                # Generate refined action based on feedback
+                refined_action = self._generate_refined_action(
+                    state, intent, meta_data, feedback, refinement_step + 1
+                )
+                
+                if refined_action:
+                    # Score the refined action
+                    refined_reward = self.reward_model.compute_reward(
+                        state, refined_action, context={"intent": intent, "meta_data": meta_data}
+                    ).value
+                    
+                    # Only accept if reward improves
+                    if refined_reward > best_reward:
+                        best_action = refined_action
+                        best_reward = refined_reward
+                        logger.info(f"Refinement step {refinement_step + 1} improved reward: {best_reward}")
+                    else:
+                        logger.info(f"Refinement step {refinement_step + 1} did not improve reward")
+                        break
+                else:
+                    break
+                    
+            except Exception as e:
+                logger.warning(f"Error in refinement step {refinement_step + 1}: {e}")
+                break
+        
+        return best_action
+    
+    def _get_reward_model_feedback(self, 
+                                 state: StateInfo, 
+                                 action: Action, 
+                                 intent: str, 
+                                 meta_data: Any) -> Optional[Dict[str, Any]]:
+        """Get reward model's thought and checklist evaluation (excluding score)"""
+        
+        try:
+            # Get detailed reward evaluation including thought process
+            reward_signal = self.reward_model.compute_reward(
+                state=state,
+                action=action,
+                context={"intent": intent, "meta_data": meta_data, "include_thought": True}
+            )
+            
+            # Extract thought and checklist from metadata
+            feedback = {
+                "thought": reward_signal.metadata.get("thought", ""),
+                "checklist": reward_signal.metadata.get("checklist", []),
+                "suggestions": reward_signal.metadata.get("suggestions", [])
+            }
+            
+            return feedback if any(feedback.values()) else None
+            
+        except Exception as e:
+            logger.warning(f"Error getting reward model feedback: {e}")
+            return None
+    
+    def _generate_refined_action(self, 
+                               state: StateInfo, 
+                               intent: str, 
+                               meta_data: Any, 
+                               feedback: Dict[str, Any], 
+                               refinement_step: int) -> Optional[Action]:
+        """Generate refined action based on feedback"""
+        
+        try:
+            # Get conversation messages from prompt manager
+            messages = get_conversation_messages(
+                prompt_type="action_refinement",
+                role="action_refiner",
+                state=state,
+                intent=intent,
+                meta_data=meta_data,
+                feedback=feedback,
+                refinement_step=refinement_step
+            )
+            
+            response = generate_from_openai_chat_completion(
+                model=self.config.llm_model,
+                messages=messages,
+                temperature=0.7,
+                max_tokens=100
+            )
+            
+            # Parse refined action
+            refined_action = self._parse_action_response(response, state)
+            return refined_action
+            
+        except Exception as e:
+            logger.error(f"Error generating refined action: {e}")
+            return None
     
     def _perform_search(self, 
                        current_state: StateInfo, 
@@ -484,3 +722,97 @@ class AdaptiveRewardGuidedSearchAgent(RewardGuidedSearchAgent):
             
             # Reset performance history
             self.performance_history.clear()
+
+    def _get_action_key(self, action: Action) -> str:
+        """Generate a unique key for an action"""
+        # Create a string representation of the action for frequency counting
+        if hasattr(action, 'action_type'):
+            return f"{action.action_type}_{action.coordinates}_{action.text}"
+        else:
+            return str(hash(str(action)))
+    
+
+    
+
+    
+    def _parse_action_response(self, response: str, state: StateInfo) -> Optional[Action]:
+        """Parse LLM response to extract action"""
+        
+        try:
+            # Try to parse JSON response
+            import json
+            action_data = json.loads(response)
+            
+            # Create Action object based on parsed data
+            if 'action_type' in action_data:
+                # This is a simplified action creation - you may need to adapt based on your Action class
+                action = Action(
+                    action_type=action_data['action_type'],
+                    coordinates=action_data.get('coordinates', (0, 0)),
+                    text=action_data.get('text', ''),
+                    element_id=action_data.get('element_id', None)
+                )
+                return action
+            else:
+                logger.warning(f"Invalid action format in response: {response}")
+                return None
+                
+        except json.JSONDecodeError:
+            logger.warning(f"Failed to parse JSON response: {response}")
+            return None
+        except Exception as e:
+            logger.error(f"Error parsing action response: {e}")
+            return None
+    
+    def _cache_result(self, cache_key: str, action: Action):
+        """Cache the search result"""
+        self.search_cache[cache_key] = {
+            'action': action,
+            'timestamp': time.time()
+        }
+    
+    def _update_search_statistics(self, search_time: float, success: bool):
+        """Update search statistics"""
+        self.search_stats["total_searches"] += 1
+        self.search_stats["average_search_time"] = (
+            (self.search_stats["average_search_time"] * (self.search_stats["total_searches"] - 1) + search_time) /
+            self.search_stats["total_searches"]
+        )
+        
+        if success:
+            self.search_stats["successful_searches"] += 1
+    
+    def _extract_current_state(self, trajectory: Trajectory) -> Optional[StateInfo]:
+        """Extract current state from trajectory"""
+        if not trajectory or not trajectory.states:
+            return None
+        
+        # Get the most recent state
+        return trajectory.states[-1]
+    
+    def _generate_cache_key(self, state: StateInfo, intent: str) -> str:
+        """Generate cache key for search results"""
+        # Create a hash of state and intent for caching
+        state_str = str(state.get('url', '')) + str(state.get('title', ''))
+        return f"{hash(state_str + intent)}"
+    
+    def _get_cached_result(self, cache_key: str) -> Optional[Action]:
+        """Get cached search result if still valid"""
+        if cache_key in self.search_cache:
+            cached_item = self.search_cache[cache_key]
+            if time.time() - cached_item['timestamp'] < self.cache_ttl:
+                return cached_item['action']
+            else:
+                # Remove expired cache entry
+                del self.search_cache[cache_key]
+        return None
+    
+    def _create_fallback_action(self) -> Action:
+        """Create a fallback action when search fails"""
+        # Create a simple wait action as fallback
+        return Action(
+            action_type="wait",
+            coordinates=(0, 0),
+            text="1",
+            element_id=None
+        )

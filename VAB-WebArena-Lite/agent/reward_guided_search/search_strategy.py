@@ -73,7 +73,7 @@ class SearchStrategy(ABC):
     def _get_state_key(self, state: StateInfo) -> str:
         """Generate a unique key for a state"""
         # Use URL as primary identifier, can be enhanced
-        return state.get('url', str(hash(str(state)))
+        return state.get('url', str(hash(str(state))))
     
     def _is_visited(self, state: StateInfo) -> bool:
         """Check if state has been visited"""
@@ -113,6 +113,7 @@ class BeamSearch(SearchStrategy):
         best_path = None
         best_reward = float('-inf')
         iterations = 0
+        max_depth_reached = 0
         
         while beam and iterations < self.max_iterations:
             iterations += 1
@@ -131,6 +132,10 @@ class BeamSearch(SearchStrategy):
                     candidates.extend(self._expand_node(
                         node, action_generator, context
                     ))
+            
+            # Track max depth reached
+            if beam:
+                max_depth_reached = max(max_depth_reached, max(node.depth for node in beam))
             
             # Select top beam_width candidates
             beam = self._select_beam_candidates(candidates)
