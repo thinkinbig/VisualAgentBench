@@ -2004,7 +2004,7 @@
         "geolocation": null,
         "intent_template": "Search for \"{{phrase}}\" and find the {{product}}.",
         "intent": "Search for \"gnome\" and find the item that would make the best gift for someone who goes to this school.",
-        "image": "http://localhost:8888/wikipedia_en_all_maxi_2022-05/I/Pitt_Panthers_wordmark.svg.png.webp",
+        "image": "http://localhost:8083/wikipedia_en_all_maxi_2022-05/I/Pitt_Panthers_wordmark.svg.png.webp",
         "instantiation_dict": {
             "phrase": "gnome",
             "product": "item that would make the best gift for someone who goes to this school"
@@ -2036,7 +2036,7 @@
         "geolocation": null,
         "intent_template": "Find the most recently listed item in the \"{{category}}\" category that {{condition}}.",
         "intent": "Find the most recently listed item in the \"Video gaming\" category that is related to this game I used to play.",
-        "image": "http://localhost:8888/wikipedia_en_all_maxi_2022-05/I/Donkey_Kong_NES_Screenshot.png.webp",
+        "image": "http://localhost:8083/wikipedia_en_all_maxi_2022-05/I/Donkey_Kong_NES_Screenshot.png.webp",
         "instantiation_dict": {
             "category": "Video gaming",
             "condition": "is related to this game I used to play"
@@ -2068,7 +2068,7 @@
         "geolocation": null,
         "intent_template": "Find the most recently listed item in the \"{{category}}\" category that {{condition}}.",
         "intent": "Find the most recently listed item in the \"Collectibles\" category that depicts the inventors of this.",
-        "image": "http://localhost:8888/wikipedia_en_all_maxi_2022-05/I/First_flight2.jpg.webp",
+        "image": "http://localhost:8083/wikipedia_en_all_maxi_2022-05/I/First_flight2.jpg.webp",
         "instantiation_dict": {
             "category": "Collectibles",
             "condition": "depicts the inventors of this"

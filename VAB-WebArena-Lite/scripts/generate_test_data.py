@@ -3,12 +3,6 @@ Generate the test data"""
 import json
 import os
 
-# Load environment variables from .env file
-try:
-    from dotenv import load_dotenv
-    load_dotenv('.env')
-except ImportError:
-    pass
 
 from browser_env.env_config import *
 

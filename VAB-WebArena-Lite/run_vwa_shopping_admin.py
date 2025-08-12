@@ -10,12 +10,16 @@ import argparse
 import logging
 import traceback
 from pathlib import Path
+import json
+import tempfile
+import subprocess
 
 # Add the current directory to Python path
 sys.path.insert(0, '.')
 
 from browser_env import ScriptBrowserEnv
 from agent.agent import construct_agent
+from browser_env.auto_login import get_site_comb_from_filepath
 
 def setup_logging():
     """设置日志"""
@@ -52,7 +56,7 @@ def run_shopping_admin_benchmark():
     required_env_vars = [
         "OPENAI_API_KEY",
         "SHOPPING", 
-        "ADMIN"
+        "SHOPPING_ADMIN"
     ]
     
     missing_vars = []
@@ -64,8 +68,8 @@ def run_shopping_admin_benchmark():
         logger.error(f"Missing required environment variables: {missing_vars}")
         logger.info("Please set the following environment variables:")
         logger.info("export OPENAI_API_KEY='your-api-key'")
-        logger.info("export SHOPPING='shopping-website-url'")
-        logger.info("export ADMIN='admin-website-url'")
+        logger.info("export SHOPPING='http://localhost:7770'")
+        logger.info("export SHOPPING_ADMIN='http://localhost:7780/admin'")
         return False
     
     # 根据 USE_CHEAP_MODEL 选择模型
@@ -108,6 +112,32 @@ def run_shopping_admin_benchmark():
             # 选择第一个配置文件进行测试
             test_config = config_files[0]
             logger.info(f"Testing with config: {test_config}")
+            
+            # 如果配置声明了 storage_state，则先执行自动登录以刷新 cookie
+            try:
+                with open(test_config, 'r') as f:
+                    cfg = json.load(f)
+                storage_state = cfg.get("storage_state")
+                if storage_state:
+                    cookie_file_name = os.path.basename(storage_state)
+                    comb = get_site_comb_from_filepath(cookie_file_name)
+                    temp_dir = tempfile.mkdtemp()
+                    subprocess.run([
+                        sys.executable,
+                        "browser_env/auto_login.py",
+                        "--auth_folder", temp_dir,
+                        "--site_list", *comb,
+                    ], check=False)
+                    cfg["storage_state"] = f"{temp_dir}/{cookie_file_name}"
+                    assert os.path.exists(cfg["storage_state"])
+                    # 将更新后的配置写入临时文件并替换测试路径
+                    tmp_config_path = f"{temp_dir}/{os.path.basename(str(test_config))}"
+                    with open(tmp_config_path, "w") as wf:
+                        json.dump(cfg, wf)
+                    test_config = Path(tmp_config_path)
+                    logger.info(f"Refreshed auth and rewrote config to {test_config}")
+            except Exception as e:
+                logger.warning(f"Auto login skipped/failed for {test_config}: {e}")
             
             # 创建浏览器环境
             env = ScriptBrowserEnv(

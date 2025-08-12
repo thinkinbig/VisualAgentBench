@@ -11384,7 +11384,7 @@
         "task_id": 284,
         "require_login": true,
         "storage_state": "./.auth/shopping_state.json",
-        "start_url": "http://localhost:8888/wikipedia_en_all_maxi_2022-05/A/Wagyu |AND| http://localhost:7770",
+        "start_url": "http://localhost:8083/wikipedia_en_all_maxi_2022-05/A/Wagyu |AND| http://localhost:7770",
         "geolocation": null,
         "intent_template": "That {{item}} in the Wikipedia page looks delicious! Can you order {{descriptors}} for me in OneStopShop?",
         "instantiation_dict": {
@@ -12704,7 +12704,7 @@
         "intent_template": "Please add to my shopping cart all the items from this page that can connect these devices from the two images.",
         "intent": "Please add to my shopping cart all the items from this page that can connect these devices from the two images.",
         "image": [
-            "http://localhost:8888/wikipedia_en_all_maxi_2022-05/I/Galaxy_Z_Flip.jpg.webp",
+            "http://localhost:8083/wikipedia_en_all_maxi_2022-05/I/Galaxy_Z_Flip.jpg.webp",
             "http://localhost:7770/media/catalog/product/cache/89ff578b9cd87e0600daac45c9e1ea98/B/0/B06XWXR6M9.0.jpg"
         ],
         "instantiation_dict": {},
@@ -13739,7 +13739,7 @@
         "task_id": 345,
         "require_login": true,
         "storage_state": "./.auth/shopping_state.json",
-        "start_url": "http://localhost:7770 |AND| http://localhost:8888/wikipedia_en_all_maxi_2022-05/I/Country_calling_codes_map.svg.png.webp",
+        "start_url": "http://localhost:7770 |AND| http://localhost:8083/wikipedia_en_all_maxi_2022-05/I/Country_calling_codes_map.svg.png.webp",
         "geolocation": null,
         "image": null,
         "intent_template": "Prepend the country code of {{country}} to the phone number of my account profile.",
@@ -13990,7 +13990,7 @@
         "storage_state": "./.auth/shopping_state.json",
         "start_url": "http://localhost:7770/catalogsearch/result/?q=+screwdriver#",
         "geolocation": null,
-        "image": "http://localhost:8888/wikipedia_en_all_maxi_2022-05/I/LR44_Button_Cell_Battery_IEC_Standard_Version.jpg.webp",
+        "image": "http://localhost:8083/wikipedia_en_all_maxi_2022-05/I/LR44_Button_Cell_Battery_IEC_Standard_Version.jpg.webp",
         "intent_template": "Buy {{item}} {{condition}}.",
         "intent": "Buy a battery with the same size and voltage as the image.",
         "instantiation_dict": {

@@ -6,7 +6,7 @@
         "task_id": 0,
         "require_login": true,
         "storage_state": "./.auth/shopping_admin_state.json",
-        "start_url": "http://localhost:7780",
+        "start_url": "http://localhost:7780/admin",
         "geolocation": null,
         "intent_template": "What are the top-{{n}} best-selling product in {{period}}",
         "instantiation_dict": {
@@ -41,7 +41,7 @@
         "task_id": 1,
         "require_login": true,
         "storage_state": "./.auth/shopping_admin_state.json",
-        "start_url": "http://localhost:7780",
+        "start_url": "http://localhost:7780/admin",
         "geolocation": null,
         "intent_template": "Tell me the the number of reviews that our store received by far that mention term \"{{term}}\"",
         "instantiation_dict": {
@@ -73,7 +73,7 @@
         "task_id": 2,
         "require_login": true,
         "storage_state": "./.auth/shopping_admin_state.json",
-        "start_url": "http://localhost:7780",
+        "start_url": "http://localhost:7780/admin",
         "geolocation": null,
         "intent_template": "Navigate to the {{target}} section in the admin panel",
         "instantiation_dict": {
@@ -89,7 +89,7 @@
             "reference_url": "",
             "program_html": [
                 {
-                    "url": "http://localhost:7780/catalog/product",
+                    "url": "http://localhost:7780/admin/catalog/product",
                     "locator": "",
                     "required_contents": {
                         "must_include": [
@@ -109,7 +109,7 @@
         "task_id": 3,
         "require_login": true,
         "storage_state": "./.auth/shopping_admin_state.json",
-        "start_url": "http://localhost:7780",
+        "start_url": "http://localhost:7780/admin",
         "geolocation": null,
         "intent_template": "Find and edit the {{item}} with {{condition}}",
         "instantiation_dict": {
@@ -126,7 +126,7 @@
             "reference_url": "",
             "program_html": [
                 {
-                    "url": "http://localhost:7780/catalog/product/edit/id/126",
+                    "url": "http://localhost:7780/admin/catalog/product/edit/id/126",
                     "locator": "",
                     "required_contents": {
                         "must_include": [
@@ -146,7 +146,7 @@
         "task_id": 4,
         "require_login": true,
         "storage_state": "./.auth/shopping_admin_state.json",
-        "start_url": "http://localhost:7780",
+        "start_url": "http://localhost:7780/admin",
         "geolocation": null,
         "intent_template": "View the {{order_type}} order with {{condition}}",
         "instantiation_dict": {
@@ -163,7 +163,7 @@
             "reference_url": "",
             "program_html": [
                 {
-                    "url": "http://localhost:7780/sales/order/view/order_id/302",
+                    "url": "http://localhost:7780/admin/sales/order/view/order_id/302",
                     "locator": "",
                     "required_contents": {
                         "must_include": [
