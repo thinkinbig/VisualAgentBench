@@ -27,3 +27,4 @@ src/server/tasks/minecraft/vab_minecraft_src/jarvis/steveI/weights
 src/server/tasks/minecraft/vab_minecraft_src/jarvis/global_configs/envs/*
 !src/server/tasks/minecraft/vab_minecraft_src/jarvis/global_configs/envs/jarvis.yaml
 *.tar
+*.log
