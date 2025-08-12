@@ -10,27 +10,37 @@ import time
 from pathlib import Path
 from typing import List
 
-import openai
-import requests
-import torch
-from PIL import Image
+def load_env_from_dotenv() -> None:
+    candidates = [
+        Path.cwd() / ".env",
+        Path(__file__).parent / ".env",
+        Path(__file__).parent.parent / ".env",
+    ]
+    chosen: Path | None = None
+    for p in candidates:
+        if p.exists():
+            chosen = p
+            break
+    if chosen is None:
+        return
+    try:
+        from dotenv import load_dotenv  # type: ignore
+        load_dotenv(dotenv_path=chosen, override=False)
+    except Exception:
+        for line in chosen.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            key = key.strip()
+            value = value.strip().strip('"').strip("'")
+            if key and key not in os.environ:
+                os.environ[key] = value
+
+# Load .env early so downstream imports see env vars
+load_env_from_dotenv()
 
 from agent import construct_agent
-from browser_env import (
-    Action,
-    ActionTypes,
-    ScriptBrowserEnv,
-    StateInfo,
-    Trajectory,
-    create_stop_action,
-)
-from browser_env.actions import is_equivalent
-from browser_env.auto_login import get_site_comb_from_filepath
-from browser_env.helper_functions import (
-    RenderHelper,
-    get_action_description,
-)
-from evaluation_harness import evaluator_router, image_utils
 
 # Setup logging
 LOG_FOLDER = "log_files"
@@ -173,16 +183,35 @@ def config() -> argparse.Namespace:
         action="store_true",
         help="Output agent responses"
     )
+    parser.add_argument(
+        "--log_level",
+        type=str,
+        default="INFO",
+        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+        help="Logging level for console and file"
+    )
     
     return parser.parse_args()
 
 def main():
     args = config()
+    # Update logger level based on flag
+    level = getattr(logging, args.log_level.upper(), logging.INFO)
+    logger.setLevel(level)
+    for h in logger.handlers:
+        h.setLevel(level)
     
     # Load test configuration
     with open(args.test_config_file, "r") as f:
         test_config = json.load(f)
     
+    # Resolve instruction path relative to this script if needed
+    instr_path = Path(args.instruction_path)
+    if not instr_path.exists():
+        candidate = Path(__file__).parent / args.instruction_path
+        if candidate.exists():
+            args.instruction_path = str(candidate)
+
     # Create agent
     agent = construct_agent(args)
     

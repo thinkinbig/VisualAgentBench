@@ -1,4 +1,5 @@
 import argparse
+import logging
 import json
 import copy
 from typing import Any, Optional, List, Dict, Tuple
@@ -279,6 +280,7 @@ class RewardGuidedAgent(Agent):
         self.temperature = temperature
         self.top_p = top_p
         self.max_refinements = max_refinements
+        self.logger = logging.getLogger("reward_guided_logger")
         
         # Check if the model is multimodal
         if ("gemini" in policy_lm_config.model or 
@@ -300,6 +302,7 @@ class RewardGuidedAgent(Agent):
     ) -> List[Tuple[str, Action]]:
         """Generate action candidates using nucleus sampling"""
         candidates = []
+        self.logger.info("Generating action candidates (num_samples=%d)", self.num_samples)
         
         # Create page screenshot image for multimodal models
         if self.multimodal_inputs:
@@ -322,7 +325,7 @@ class RewardGuidedAgent(Agent):
                 print("WARNING: Input image provided but no image captioner available.")
         
         # Generate multiple samples with nucleus sampling
-        for _ in range(self.num_samples):
+        for sample_idx in range(self.num_samples):
             try:
                 if self.multimodal_inputs:
                     prompt = self.prompt_constructor.construct(
@@ -345,25 +348,37 @@ class RewardGuidedAgent(Agent):
                 
                 force_prefix = self.prompt_constructor.instruction["meta_data"].get("force_prefix", "")
                 response = f"{force_prefix}{response}"
+                self.logger.debug("[Sample %d] Raw LLM response: %r", sample_idx, response)
                 
-                # Parse action
+                # Parse action (with fallbacks to be robust to formatting)
                 parsed_response = self.prompt_constructor.extract_action(response)
-                if self.action_set_tag == "id_accessibility_tree":
-                    action = create_id_based_action(parsed_response)
-                elif self.action_set_tag == "playwright":
-                    action = create_playwright_action(parsed_response)
-                elif self.action_set_tag == "som":
-                    action = create_id_based_action(parsed_response)
-                elif self.action_set_tag == 'webrl_id':
-                    action = create_webrl_id_based_action(parsed_response)
-                else:
-                    raise ValueError(f"Unknown action type {self.action_set_tag}")
+                self.logger.debug("[Sample %d] Extracted action string: %s", sample_idx, parsed_response)
+                try:
+                    if self.action_set_tag == "id_accessibility_tree":
+                        action = create_id_based_action(parsed_response)
+                    elif self.action_set_tag == "playwright":
+                        action = create_playwright_action(parsed_response)
+                    elif self.action_set_tag == "som":
+                        action = create_id_based_action(parsed_response)
+                    elif self.action_set_tag == 'webrl_id':
+                        # Primary: parse WebRL-style
+                        action = create_webrl_id_based_action(parsed_response)
+                    else:
+                        raise ValueError(f"Unknown action type {self.action_set_tag}")
+                except Exception:
+                    # Fallbacks: many prompts still emit id-style like "goto [...]"
+                    try:
+                        action = create_id_based_action(parsed_response)
+                    except Exception:
+                        # As a last resort, try playwright
+                        action = create_playwright_action(parsed_response)
                 
                 action["raw_prediction"] = response
                 candidates.append((response, action))
+                self.logger.debug("[Sample %d] Parsed action OK: %s", sample_idx, str(action))
                 
             except Exception as e:
-                print(f"Error generating sample {_}: {e}")
+                self.logger.warning("Error generating sample %d: %s", sample_idx, e, exc_info=True)
                 continue
         
         return candidates
@@ -379,9 +394,22 @@ class RewardGuidedAgent(Agent):
         try:
             # Create reward evaluation prompt
             reward_prompt = self._create_reward_prompt(action, trajectory, intent, meta_data)
+            self.logger.debug("Reward prompt (text):\n%s", reward_prompt)
             
             # Get reward score from reward model
-            response = call_llm(self.reward_lm_config, reward_prompt)
+            # Ensure prompt type matches chat mode requirements
+            if self.reward_lm_config.provider == "openai" and self.reward_lm_config.mode == "chat":
+                messages = [
+                    {
+                        "role": "system",
+                        "content": "You are a reward model for web agents. Read the user's content and output only: Score: X.X",
+                    },
+                    {"role": "user", "content": reward_prompt},
+                ]
+                response = call_llm(self.reward_lm_config, messages)
+            else:
+                response = call_llm(self.reward_lm_config, reward_prompt)
+            self.logger.debug("Reward model response: %r", response)
             
             # Extract reward score from response
             # Assuming the reward model returns a score in the format "Score: X.X" or similar
@@ -390,21 +418,26 @@ class RewardGuidedAgent(Agent):
                 import re
                 score_match = re.search(r'Score:\s*([\d.]+)', response)
                 if score_match:
-                    return float(score_match.group(1))
+                    score = float(score_match.group(1))
+                    self.logger.debug("Extracted reward score: %s", score)
+                    return score
                 
                 # Fallback: try to find any number in the response
                 numbers = re.findall(r'[\d.]+', response)
                 if numbers:
-                    return float(numbers[0])
+                    score = float(numbers[0])
+                    self.logger.debug("Fallback extracted numeric score: %s", score)
+                    return score
                 
                 # If no score found, return a default score
+                self.logger.debug("No numeric score found, defaulting to 0.0")
                 return 0.0
                 
             except (ValueError, IndexError):
                 return 0.0
                 
         except Exception as e:
-            print(f"Error scoring action with reward model: {e}")
+            self.logger.warning("Error scoring action with reward model: %s", e, exc_info=True)
             return 0.0
     
     def _create_reward_prompt(
@@ -415,24 +448,28 @@ class RewardGuidedAgent(Agent):
         meta_data: dict[str, Any]
     ) -> str:
         """Create a prompt for the reward model to evaluate an action"""
-        # This is a simplified reward prompt - you may want to customize this
-        prompt = f"""
-        You are a reward model that evaluates web agent actions. Given the current state and an action, 
-        predict how good this action is for achieving the goal.
+        # Prefer a clean action string without code fences
+        raw_pred = action.get("raw_prediction", str(action))
+        proposed_action = raw_pred
+        if isinstance(raw_pred, str) and "```" in raw_pred:
+            try:
+                proposed_action = self.prompt_constructor.extract_action(raw_pred)
+            except Exception:
+                proposed_action = raw_pred.replace("```", "").strip()
         
-        Goal: {intent}
-        
-        Current State: {trajectory[-1]["observation"]["text"] if "text" in trajectory[-1]["observation"] else "No text observation"}
-        
-        Proposed Action: {action.get("raw_prediction", str(action))}
-        
-        Please evaluate this action and provide a score from 0.0 to 10.0, where:
-        - 0.0: Completely wrong action that will not help achieve the goal
-        - 5.0: Neutral action that neither helps nor hurts
-        - 10.0: Perfect action that directly helps achieve the goal
-        
-        Respond with: Score: X.X
-        """
+        current_text = trajectory[-1]["observation"].get("text", "No text observation")
+        prompt = (
+            "You are a reward model that evaluates web agent actions. Given the current state and an action, "
+            "predict how good this action is for achieving the goal.\n\n"
+            f"Goal: {intent}\n\n"
+            f"Current State: {current_text}\n\n"
+            f"Proposed Action: {proposed_action}\n\n"
+            "Please evaluate this action and provide a score from 0.0 to 10.0, where:\n"
+            "- 0.0: Completely wrong action that will not help achieve the goal\n"
+            "- 5.0: Neutral action that neither helps nor hurts\n"
+            "- 10.0: Perfect action that directly helps achieve the goal\n\n"
+            "Respond with: Score: X.X"
+        )
         return prompt
     
     def _refine_action(
@@ -445,17 +482,17 @@ class RewardGuidedAgent(Agent):
     ) -> Tuple[str, Action]:
         """Refine an action based on feedback from the reward model"""
         try:
-            # Create refinement prompt
-            refinement_prompt = f"""
+            # Create refinement prompt (use the provided feedback string)
+            refinement_context = f"""
             You are a web agent that needs to refine an action based on feedback.
             
             Goal: {intent}
             
-            Current State: {trajectory[-1]["observation"]["text"] if "text" in trajectory[-1]["observation"] else "No text observation"}
+            Current State: {trajectory[-1]["observation"].get("text", "No text observation")}
             
             Original Action: {action.get("raw_prediction", str(action))}
             
-            Feedback: {refinement_prompt}
+            Feedback: {refinement_feedback}
             
             Please provide a refined action that addresses the feedback and better achieves the goal.
             """
@@ -472,7 +509,7 @@ class RewardGuidedAgent(Agent):
                 )
             
             # Add refinement context
-            prompt += f"\n\nRefinement Context:\n{refinement_prompt}"
+            prompt += f"\n\nRefinement Context:\n{refinement_context}"
             
             if self.planner_ip is not None and self.planner_ip != "":
                 response = call_llm(self.policy_lm_config, prompt, 'EMPTY', self.planner_ip)
@@ -514,6 +551,7 @@ class RewardGuidedAgent(Agent):
         
         # Step 1: Generate action candidates using nucleus sampling
         candidates = self._generate_action_candidates(trajectory, intent, meta_data, images)
+        self.logger.info("Generated %d candidate actions", len(candidates))
         
         if not candidates:
             # Fallback to default action
@@ -536,18 +574,21 @@ class RewardGuidedAgent(Agent):
         for action_key, action_list in sorted_candidates[:5]:  # Top 5 most frequent
             # Use the first occurrence of each unique action
             top_candidates.append(action_list[0])
+        self.logger.debug("Top %d unique candidates selected for scoring", len(top_candidates))
         
         # Step 3: Score candidates using reward model
         scored_candidates = []
         for response, action in top_candidates:
             score = self._score_action_with_reward_model(action, trajectory, intent, meta_data)
             scored_candidates.append((score, response, action))
+            self.logger.info("Candidate scored: score=%.3f, action=%s", score, str(action))
         
         # Sort by score (highest first)
         scored_candidates.sort(key=lambda x: x[0], reverse=True)
         
         # Step 4: Select best action
         best_score, best_response, best_action = scored_candidates[0]
+        self.logger.info("Best action selected: score=%.3f, action=%s", best_score, str(best_action))
         
         if output_response:
             print(f'Agent: {best_response}', flush=True)
@@ -561,20 +602,38 @@ class RewardGuidedAgent(Agent):
         while refinement_count < self.max_refinements:
             # Get feedback from reward model (excluding the actual score)
             feedback_prompt = self._create_reward_prompt(current_action, trajectory, intent, meta_data)
-            feedback_response = call_llm(self.reward_lm_config, feedback_prompt)
+            try:
+                if self.reward_lm_config.provider == "openai" and self.reward_lm_config.mode == "chat":
+                    messages = [
+                        {
+                            "role": "system",
+                            "content": "You are a reward model for web agents. Read the user's content and output critique and a single action in the same format, wrapped in code fences.",
+                        },
+                        {"role": "user", "content": feedback_prompt},
+                    ]
+                    feedback_response = call_llm(self.reward_lm_config, messages)
+                else:
+                    feedback_response = call_llm(self.reward_lm_config, feedback_prompt)
+            except Exception as e:
+                self.logger.warning("Reward model failed during refinement feedback: %s", e, exc_info=True)
+                break
             
             # Remove score information to get pure feedback
             feedback = feedback_response.replace(f"Score: {current_score}", "").strip()
+            self.logger.debug("Refinement feedback: %r", feedback)
             
             # Refine the action
             refined_response, refined_action = self._refine_action(
                 current_action, trajectory, intent, meta_data, feedback
             )
+            self.logger.debug("Refined response: %r", refined_response)
+            self.logger.debug("Refined action: %s", str(refined_action))
             
             # Score the refined action
             refined_score = self._score_action_with_reward_model(
                 refined_action, trajectory, intent, meta_data
             )
+            self.logger.info("Refined action scored: %.3f (prev=%.3f)", refined_score, current_score)
             
             if output_response:
                 print(f'Refinement {refinement_count + 1}: {refined_response}', flush=True)
@@ -588,9 +647,11 @@ class RewardGuidedAgent(Agent):
                 
                 if output_response:
                     print(f'Refinement accepted! New score: {refined_score}', flush=True)
+                self.logger.info("Refinement %d accepted: new_score=%.3f", refinement_count, refined_score)
             else:
                 if output_response:
                     print(f'Refinement rejected. Score did not improve.', flush=True)
+                self.logger.info("Refinement %d rejected: refined_score=%.3f <= current_score=%.3f", refinement_count + 1, refined_score, current_score)
                 break
         
         return current_action

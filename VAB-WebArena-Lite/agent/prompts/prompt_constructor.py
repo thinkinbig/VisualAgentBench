@@ -5,7 +5,11 @@ from typing import Any, TypedDict
 from PIL import Image
 
 from browser_env import Action, ActionParsingError, Trajectory
-from browser_env.env_config import URL_MAPPINGS
+try:
+    from browser_env.env_config import URL_MAPPINGS
+except Exception:
+    # Fall back to empty URL mappings in offline/test runs
+    URL_MAPPINGS = {}
 from browser_env.utils import StateInfo, pil_to_b64, pil_to_vertex
 from llms import lm_config
 from llms.tokenizers import Tokenizer

@@ -31,8 +31,13 @@ from .actions import (
     create_type_action,
     is_equivalent,
 )
-from .async_envs import AsyncScriptBrowserEnv
-from .envs import ScriptBrowserEnv
+try:
+    from .async_envs import AsyncScriptBrowserEnv
+    from .envs import ScriptBrowserEnv
+except Exception:
+    # Optional: allow lightweight imports without full env setup
+    AsyncScriptBrowserEnv = None  # type: ignore[assignment]
+    ScriptBrowserEnv = None  # type: ignore[assignment]
 from .processors import ObservationMetadata
 from .trajectory import Trajectory
 from .utils import DetachedPage, StateInfo
