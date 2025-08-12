@@ -182,29 +182,26 @@ async def _throttled_openai_chat_completion_acreate(
         for _ in range(3):
             try:
                 # Handle different parameter names for different models
-                if "gpt-5" in model:
-                    # GPT-5 models may not support max_tokens, try without it
-                    try:
-                        return await aclient.chat.completions.create(
-                            model=model,
-                            messages=messages,
-                            temperature=temperature,
-                            max_tokens=max_tokens,
-                            top_p=top_p,
-                        )
-                    except Exception as e:
-                        if "max_tokens" in str(e):
-                            # If max_tokens is not supported, try without it
-                            return await aclient.chat.completions.create(
-                                model=model,
-                                messages=messages,
-                                temperature=temperature,
-                                top_p=top_p,
-                            )
-                        else:
-                            raise e
+                use_cheap = os.environ.get("USE_CHEAP", "false").lower() == "true"
+                
+                if "gpt-5-nano" in model or use_cheap:
+                    # GPT-5 nano models have very limited parameter support
+                    # Only support: model, messages
+                    return await aclient.chat.completions.create(
+                        model=model,
+                        messages=messages,
+                    )
+                elif "gpt-5" in model and not use_cheap:
+                    # GPT-5 full models support more parameters
+                    return await aclient.chat.completions.create(
+                        model=model,
+                        messages=messages,
+                        temperature=temperature,
+                        max_tokens=max_tokens,
+                        top_p=top_p,
+                    )
                 else:
-                    # Standard models use max_tokens
+                    # Standard models use all parameters
                     return await aclient.chat.completions.create(
                         model=model,
                         messages=messages,
@@ -285,28 +282,26 @@ def generate_from_openai_chat_completion(
         )
     
     # Handle different parameter names for different models
-    if "gpt-5" in model:
-        # GPT-5 models may not support max_tokens, try without it
-        try:
-            response = client.chat.completions.create(
-                model=model,
-                messages=messages,
-                temperature=temperature,
-                top_p=top_p,
-            )
-        except Exception as e:
-            if "max_tokens" in str(e):
-                # If max_tokens is not supported, try without it
-                response = client.chat.completions.create(
-                    model=model,
-                    messages=messages,
-                    temperature=temperature,
-                    top_p=top_p,
-                )
-            else:
-                raise e
+    use_cheap = os.environ.get("USE_CHEAP_MODEL", "false").lower() == "true"
+    
+    if "gpt-5" in model and use_cheap:
+        # GPT-5 nano models have very limited parameter support
+        # Only support: model, messages
+        response = client.chat.completions.create(
+            model=model,
+            messages=messages,
+        )
+    elif "gpt-5" in model and not use_cheap:
+        # GPT-5 full models support more parameters
+        response = client.chat.completions.create(
+            model=model,
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            top_p=top_p,
+        )
     else:
-        # Standard models use max_tokens
+        # Standard models use all parameters
         response = client.chat.completions.create(
             model=model,
             messages=messages,

@@ -1,6 +1,13 @@
 # websites domain
 import os
 
+# Load environment variables from .env file
+try:
+    from dotenv import load_dotenv
+    load_dotenv('.env')
+except ImportError:
+    pass
+
 DATASET = os.environ["DATASET"]
 if DATASET not in ["webarena", "visualwebarena"]:
     raise ValueError("Please set the DATASET environment variable, the possible options are `webarena`, `visualwebarena` and `miniwob++`")
@@ -46,6 +53,7 @@ if DATASET == "webarena":
 elif DATASET == "visualwebarena":
     REDDIT = os.environ.get("REDDIT", "")
     SHOPPING = os.environ.get("SHOPPING", "")
+    SHOPPING_ADMIN = os.environ.get("SHOPPING_ADMIN", "")
     WIKIPEDIA = os.environ.get("WIKIPEDIA", "")
     HOMEPAGE = os.environ.get("HOMEPAGE", "")
     CLASSIFIEDS = os.environ.get("CLASSIFIEDS", "")
@@ -63,6 +71,7 @@ elif DATASET == "visualwebarena":
         f"Please setup the URLs and tokens to each site. Current: "
         + f"Reddit: {REDDIT}"
         + f"Shopping: {SHOPPING}"
+        + f"Shopping Admin: {SHOPPING_ADMIN}"
         + f"Wikipedia: {WIKIPEDIA}"
         + f"Homepage: {HOMEPAGE}"
         + f"Classifieds: {CLASSIFIEDS}"
@@ -72,6 +81,7 @@ elif DATASET == "visualwebarena":
     URL_MAPPINGS = {
         REDDIT: "http://reddit.com",
         SHOPPING: "http://onestopmarket.com",
+        SHOPPING_ADMIN: "http://luma.com/admin",
         WIKIPEDIA: "http://wikipedia.org",
         HOMEPAGE: "http://homepage.com",
         CLASSIFIEDS: "http://classifieds.com",

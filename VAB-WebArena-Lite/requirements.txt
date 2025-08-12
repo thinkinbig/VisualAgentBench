@@ -144,3 +144,4 @@ wcwidth==0.2.8
 websockets==11.0.3
 xxhash==3.3.0
 yarl==1.9.2
+python-dotenv==1.0.1

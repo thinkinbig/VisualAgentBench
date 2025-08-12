@@ -3,6 +3,13 @@ Generate the test data"""
 import json
 import os
 
+# Load environment variables from .env file
+try:
+    from dotenv import load_dotenv
+    load_dotenv('.env')
+except ImportError:
+    pass
+
 from browser_env.env_config import *
 
 
@@ -31,14 +38,19 @@ def main() -> None:
         print(f"CLASSIFIEDS: {CLASSIFIEDS}")
         print(f"REDDIT: {REDDIT}")
         print(f"SHOPPING: {SHOPPING}")
+        print(f"SHOPPING_ADMIN: {SHOPPING_ADMIN}")
         inp_paths = [
-            "config_files/vwa/test_classifieds.raw.json", "config_files/vwa/test_shopping.raw.json", "config_files/vwa/test_reddit.raw.json",
+            "config_files/vwa/test_classifieds.raw.json", 
+            "config_files/vwa/test_shopping.raw.json", 
+            "config_files/vwa/test_reddit.raw.json",
+            "config_files/vwa/test_admin.raw.json",
         ]
         replace_map = {
             "__REDDIT__": REDDIT,
             "__SHOPPING__": SHOPPING,
             "__WIKIPEDIA__": WIKIPEDIA,
             "__CLASSIFIEDS__": CLASSIFIEDS,
+            "__SHOPPING_ADMIN__": SHOPPING_ADMIN,
         }
     else:
         raise ValueError(f"Dataset not implemented: {DATASET}")

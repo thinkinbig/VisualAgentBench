@@ -1,0 +1,179 @@
+[
+    {
+        "sites": [
+            "shopping_admin"
+        ],
+        "task_id": 0,
+        "require_login": true,
+        "storage_state": "./.auth/shopping_admin_state.json",
+        "start_url": "http://localhost:7780",
+        "geolocation": null,
+        "intent_template": "What are the top-{{n}} best-selling product in {{period}}",
+        "instantiation_dict": {
+            "n": 3,
+            "period": "Jan 2023"
+        },
+        "intent": "What are the top-3 best-selling product in Jan 2023",
+        "require_reset": false,
+        "eval": {
+            "eval_types": [
+                "string_match"
+            ],
+            "reference_answers": {
+                "must_include": [
+                    "Impulse Duffle",
+                    "Overnight Duffle",
+                    "Hawkeye Yoga Short-32-Blue"
+                ]
+            },
+            "reference_url": "",
+            "program_html": [],
+            "string_note": "",
+            "reference_answer_raw_annotation": "Impulse Duffle, Overnight Duffle, Hawkeye Yoga Short-32-Blue"
+        },
+        "intent_template_id": 279,
+        "old_task_id": 4
+    },
+    {
+        "sites": [
+            "shopping_admin"
+        ],
+        "task_id": 1,
+        "require_login": true,
+        "storage_state": "./.auth/shopping_admin_state.json",
+        "start_url": "http://localhost:7780",
+        "geolocation": null,
+        "intent_template": "Tell me the the number of reviews that our store received by far that mention term \"{{term}}\"",
+        "instantiation_dict": {
+            "term": "best"
+        },
+        "intent": "Tell me the the number of reviews that our store received by far that mention term \"best\"",
+        "require_reset": false,
+        "eval": {
+            "eval_types": [
+                "string_match"
+            ],
+            "reference_answers": {
+                "must_include": [
+                    "2"
+                ]
+            },
+            "reference_url": "",
+            "program_html": [],
+            "string_note": "",
+            "reference_answer_raw_annotation": "2"
+        },
+        "intent_template_id": 288,
+        "old_task_id": 5
+    },
+    {
+        "sites": [
+            "shopping_admin"
+        ],
+        "task_id": 2,
+        "require_login": true,
+        "storage_state": "./.auth/shopping_admin_state.json",
+        "start_url": "http://localhost:7780",
+        "geolocation": null,
+        "intent_template": "Navigate to the {{target}} section in the admin panel",
+        "instantiation_dict": {
+            "target": "product catalog"
+        },
+        "intent": "Navigate to the product catalog section in the admin panel",
+        "require_reset": false,
+        "eval": {
+            "eval_types": [
+                "program_html"
+            ],
+            "reference_answers": null,
+            "reference_url": "",
+            "program_html": [
+                {
+                    "url": "http://localhost:7780/catalog/product",
+                    "locator": "",
+                    "required_contents": {
+                        "must_include": [
+                            "Product Catalog"
+                        ]
+                    }
+                }
+            ]
+        },
+        "intent_template_id": 1,
+        "old_task_id": 6
+    },
+    {
+        "sites": [
+            "shopping_admin"
+        ],
+        "task_id": 3,
+        "require_login": true,
+        "storage_state": "./.auth/shopping_admin_state.json",
+        "start_url": "http://localhost:7780",
+        "geolocation": null,
+        "intent_template": "Find and edit the {{item}} with {{condition}}",
+        "instantiation_dict": {
+            "item": "product",
+            "condition": "ID 126"
+        },
+        "intent": "Find and edit the product with ID 126",
+        "require_reset": false,
+        "eval": {
+            "eval_types": [
+                "program_html"
+            ],
+            "reference_answers": null,
+            "reference_url": "",
+            "program_html": [
+                {
+                    "url": "http://localhost:7780/catalog/product/edit/id/126",
+                    "locator": "",
+                    "required_contents": {
+                        "must_include": [
+                            "Edit Product"
+                        ]
+                    }
+                }
+            ]
+        },
+        "intent_template_id": 2,
+        "old_task_id": 7
+    },
+    {
+        "sites": [
+            "shopping_admin"
+        ],
+        "task_id": 4,
+        "require_login": true,
+        "storage_state": "./.auth/shopping_admin_state.json",
+        "start_url": "http://localhost:7780",
+        "geolocation": null,
+        "intent_template": "View the {{order_type}} order with {{condition}}",
+        "instantiation_dict": {
+            "order_type": "sales",
+            "condition": "order ID 302"
+        },
+        "intent": "View the sales order with order ID 302",
+        "require_reset": false,
+        "eval": {
+            "eval_types": [
+                "program_html"
+            ],
+            "reference_answers": null,
+            "reference_url": "",
+            "program_html": [
+                {
+                    "url": "http://localhost:7780/sales/order/view/order_id/302",
+                    "locator": "",
+                    "required_contents": {
+                        "must_include": [
+                            "Order Information"
+                        ]
+                    }
+                }
+            ]
+        },
+        "intent_template_id": 3,
+        "old_task_id": 8
+    }
+]
