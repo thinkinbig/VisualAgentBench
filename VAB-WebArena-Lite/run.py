@@ -374,6 +374,7 @@ def test(
     )
 
     for config_file in config_file_list:
+        render_helper = None
         try:
             render_helper = RenderHelper(
                 config_file, args.result_dir, args.action_set_tag
@@ -401,7 +402,8 @@ def test(
                             temp_dir,
                             "--site_list",
                             *comb,
-                        ]
+                        ],
+                        env={**os.environ, "PYTHONPATH": "."}
                     )
                     _c["storage_state"] = f"{temp_dir}/{cookie_file_name}"
                     assert os.path.exists(_c["storage_state"])
@@ -562,7 +564,8 @@ def test(
                 f.write(f"[Unhandled Error] {repr(e)}\n")
                 f.write(traceback.format_exc())  # write stack trace to file
 
-        render_helper.close()
+        if render_helper:
+            render_helper.close()
 
     env.close()
     if len(scores):

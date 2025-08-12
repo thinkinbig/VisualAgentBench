@@ -1,0 +1,82 @@
+# Generated test data files
+config_files/*/test_*/[0-9]*.json
+config_files/*/test_*/*.json
+
+# Keep raw config files
+!config_files/*/test_*/*.raw.json
+
+# Log files
+log_files/
+*.log
+
+# Authentication and cookies
+.auth/
+storage_state/
+*.auth
+
+# Test results
+test_results/
+traces/
+
+# Temporary files
+temp/
+tmp/
+*.tmp
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Downloaded weights and models
+*.pth
+*.pt
+*.ckpt
+*.safetensors
+
+# Media files (if not needed in repo)
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.mp4
+*.avi
+
+# Keep specific media files
+!media/*.png
+!media/*.gif
+!media/*.ttf
+!coco_images/*.jpg
+!assets/*.png

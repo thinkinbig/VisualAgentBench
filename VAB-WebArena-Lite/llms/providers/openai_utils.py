@@ -181,13 +181,37 @@ async def _throttled_openai_chat_completion_acreate(
     async with limiter:
         for _ in range(3):
             try:
-                return await aclient.chat.completions.create(
-                    model=model,
-                    messages=messages,
-                    temperature=temperature,
-                    max_tokens=max_tokens,
-                    top_p=top_p,
-                )
+                # Handle different parameter names for different models
+                if "gpt-5" in model:
+                    # GPT-5 models may not support max_tokens, try without it
+                    try:
+                        return await aclient.chat.completions.create(
+                            model=model,
+                            messages=messages,
+                            temperature=temperature,
+                            max_tokens=max_tokens,
+                            top_p=top_p,
+                        )
+                    except Exception as e:
+                        if "max_tokens" in str(e):
+                            # If max_tokens is not supported, try without it
+                            return await aclient.chat.completions.create(
+                                model=model,
+                                messages=messages,
+                                temperature=temperature,
+                                top_p=top_p,
+                            )
+                        else:
+                            raise e
+                else:
+                    # Standard models use max_tokens
+                    return await aclient.chat.completions.create(
+                        model=model,
+                        messages=messages,
+                        temperature=temperature,
+                        max_tokens=max_tokens,
+                        top_p=top_p,
+                    )
             except openai.RateLimitError:
                 logging.warning(
                     "OpenAI API rate limit exceeded. Sleeping for 10 seconds."
@@ -259,13 +283,38 @@ def generate_from_openai_chat_completion(
         raise ValueError(
             "OPENAI_API_KEY environment variable must be set when using OpenAI API."
         )
-    response = client.chat.completions.create(
-        model=model,
-        messages=messages,
-        temperature=temperature,
-        max_tokens=max_tokens,
-        top_p=top_p,
-    )
+    
+    # Handle different parameter names for different models
+    if "gpt-5" in model:
+        # GPT-5 models may not support max_tokens, try without it
+        try:
+            response = client.chat.completions.create(
+                model=model,
+                messages=messages,
+                temperature=temperature,
+                top_p=top_p,
+            )
+        except Exception as e:
+            if "max_tokens" in str(e):
+                # If max_tokens is not supported, try without it
+                response = client.chat.completions.create(
+                    model=model,
+                    messages=messages,
+                    temperature=temperature,
+                    top_p=top_p,
+                )
+            else:
+                raise e
+    else:
+        # Standard models use max_tokens
+        response = client.chat.completions.create(
+            model=model,
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            top_p=top_p,
+        )
+    
     answer: str = response.choices[0].message.content
     return answer
 
