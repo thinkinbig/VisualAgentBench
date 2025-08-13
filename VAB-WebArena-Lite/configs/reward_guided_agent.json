@@ -14,5 +14,54 @@
     "answer_phrase": "```",
     "keywords": ["objective", "url", "observation", "previous_action"],
     "action_splitter": "```"
+  },
+  "num_samples": 20,
+  "temperature": 1.0,
+  "top_p": 0.9,
+  "max_refinements": 2,
+  "action_set_tag": "id_accessibility_tree",
+  "policy_model": {
+    "provider": "openai",
+    "model": "gpt-4o-mini",
+    "mode": "chat",
+    "model_endpoint": null,
+    "gen": {
+      "temperature": 1.0,
+      "top_p": 0.9,
+      "context_length": 4096,
+      "max_tokens": 512,
+      "stop_token": null,
+      "max_obs_length": 2048,
+      "max_retry": 3
+    }
+  },
+  "reward_model": {
+    "provider": "openai",
+    "model": "gpt-4o",
+    "mode": "chat",
+    "model_endpoint": null,
+    "gen": {
+      "temperature": 1.0,
+      "top_p": 0.9,
+      "context_length": 4096,
+      "max_tokens": 512,
+      "stop_token": null,
+      "max_obs_length": 2048,
+      "max_retry": 3
+    }
+  },
+  "runtime": {
+    "real_env": false,
+    "render": false,
+    "observation_type": "accessibility_tree",
+    "viewport_width": 1280,
+    "viewport_height": 2048,
+    "sleep_after_execution": 0.0,
+    "max_steps": 30,
+    "planner_ip": "",
+    "output_response": false,
+    "log_level": "INFO"
   }
 }
+
+

@@ -12,6 +12,7 @@ except Exception:
     URL_MAPPINGS = {}
 from browser_env.utils import StateInfo, pil_to_b64, pil_to_vertex
 from llms import lm_config
+from agent.config_schema import load_and_validate_instruction
 from llms.tokenizers import Tokenizer
 from llms.utils import APIInput
 
@@ -35,9 +36,11 @@ class PromptConstructor(object):
         self.instruction_path = Path(instruction_path)
         self.obs_modality = "text"
         self.lm_config = lm_config
-        instruction = json.load(open(self.instruction_path))
-        instruction["examples"] = [tuple(e) for e in instruction["examples"]]
-        self.instruction: Instruction = instruction
+        validated = load_and_validate_instruction(str(self.instruction_path))
+        # Convert to the legacy runtime structure used elsewhere
+        instruction_dict = json.loads(validated.json())
+        instruction_dict["examples"] = [tuple(e) for e in instruction_dict["examples"]]
+        self.instruction: Instruction = instruction_dict  # type: ignore[assignment]
         self.tokenizer = tokenizer
 
     def get_lm_api_input(

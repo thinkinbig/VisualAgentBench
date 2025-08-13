@@ -51,7 +51,9 @@ class AsyncScriptBrowserEnv(Env[npt.NDArray[np.uint8], Action]):
         self.context_manager = async_playwright()
         self.playwright = await self.context_manager.__aenter__()
         self.browser = await self.playwright.chromium.launch(
-            headless=self.headless, slow_mo=self.slow_mo
+            headless=self.headless,
+            slow_mo=self.slow_mo,
+            args=["--force-device-scale-factor=1", "--high-dpi-support=1"],
         )
         if config_file:
             with open(config_file, "r") as f:

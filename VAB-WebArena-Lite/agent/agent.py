@@ -3,12 +3,13 @@ import logging
 import json
 import copy
 from typing import Any, Optional, List, Dict, Tuple
+from types import SimpleNamespace
 
-import tiktoken
 from beartype import beartype
 from PIL import Image
 
 from agent.prompts import *
+from agent.config_schema import load_and_validate_instruction
 from browser_env import Trajectory
 from browser_env.actions import (
     Action,
@@ -18,12 +19,9 @@ from browser_env.actions import (
     create_playwright_action,
     create_webrl_id_based_action
 )
-from browser_env.utils import Observation, StateInfo
+from browser_env.utils import StateInfo
 from llms import (
     call_llm,
-    generate_from_huggingface_completion,
-    generate_from_openai_chat_completion,
-    generate_from_openai_completion,
     lm_config,
 )
 from llms.tokenizers import Tokenizer
@@ -212,7 +210,54 @@ class PromptAgent(Agent):
 
 
 def construct_agent(args: argparse.Namespace, captioning_fn=None) -> Agent:
-    llm_config = lm_config.construct_llm_config(args)
+    # Optionally read instruction JSON to pick up defaults for policy model and action_set_tag
+    instruction_obj: dict[str, Any] | None = None
+    try:
+        instruction_obj = json.loads(load_and_validate_instruction(args.instruction_path).json())
+    except Exception:
+        instruction_obj = None
+
+    # Build policy (action) model config, allowing JSON overrides under policy_model
+    if isinstance(instruction_obj, dict) and isinstance(instruction_obj.get("policy_model"), dict):
+        policy_section = instruction_obj["policy_model"]
+        policy_provider = policy_section.get("provider") or args.provider
+        policy_model = policy_section.get("model") or args.model
+        policy_mode = policy_section.get("mode") or args.mode
+        policy_model_endpoint = policy_section.get("model_endpoint", getattr(args, "model_endpoint", None))
+
+        policy_args = SimpleNamespace(
+            provider=policy_provider,
+            model=policy_model,
+            mode=policy_mode,
+            temperature=args.temperature,
+            top_p=args.top_p,
+            context_length=args.context_length,
+            max_tokens=args.max_tokens,
+            stop_token=args.stop_token,
+            max_obs_length=args.max_obs_length,
+            max_retry=args.max_retry,
+            model_endpoint=policy_model_endpoint,
+        )
+        # Map optional per-model gen overrides into args before constructing LMConfig
+        gen_overrides = policy_section.get("gen") or {}
+        if isinstance(gen_overrides, dict):
+            for k, v in gen_overrides.items():
+                if v is not None:
+                    setattr(policy_args, k, v)
+        llm_config = lm_config.construct_llm_config(policy_args)  # type: ignore[arg-type]
+    else:
+        llm_config = lm_config.construct_llm_config(args)
+
+    # Allow JSON root-level default for action_set_tag if user didn't explicitly change it
+    if isinstance(instruction_obj, dict) and "action_set_tag" in instruction_obj:
+        try:
+            # Heuristic: only override if args has default value
+            if getattr(args, "action_set_tag", "id_accessibility_tree") == "id_accessibility_tree":
+                args.action_set_tag = instruction_obj["action_set_tag"]
+        except Exception:
+            pass
+    
+    # Reward model config will be constructed later for reward_guided agent using instruction JSON
 
     agent: Agent
     if args.agent_type == "teacher_forcing":
@@ -220,7 +265,8 @@ def construct_agent(args: argparse.Namespace, captioning_fn=None) -> Agent:
     elif args.agent_type == "prompt":
         with open(args.instruction_path) as f:
             constructor_type = json.load(f)["meta_data"]["prompt_constructor"]
-        tokenizer = Tokenizer(args.provider, args.model)
+        # Build tokenizer from the computed policy llm_config
+        tokenizer = Tokenizer(llm_config.provider, llm_config.model)
         prompt_constructor = eval(constructor_type)(
             args.instruction_path, lm_config=llm_config, tokenizer=tokenizer
         )
@@ -234,17 +280,64 @@ def construct_agent(args: argparse.Namespace, captioning_fn=None) -> Agent:
     elif args.agent_type == "reward_guided":
         with open(args.instruction_path) as f:
             constructor_type = json.load(f)["meta_data"]["prompt_constructor"]
-        tokenizer = Tokenizer(args.provider, args.model)
+        # Build tokenizer from the computed policy llm_config
+        tokenizer = Tokenizer(llm_config.provider, llm_config.model)
         prompt_constructor = eval(constructor_type)(
             args.instruction_path, lm_config=llm_config, tokenizer=tokenizer
         )
+        # Build reward model config from instruction JSON (new format only) with CLI fallbacks
+        instruction_obj = getattr(prompt_constructor, "instruction", {})
+        reward_model_section = instruction_obj.get("reward_model") if isinstance(instruction_obj, dict) else None
+
+        reward_provider = reward_model_section.get("provider") or getattr(args, "reward_provider", None) or args.provider
+        reward_model = reward_model_section.get("model") or getattr(args, "reward_model", None) or args.model
+        reward_mode = reward_model_section.get("mode") or getattr(args, "mode", None)
+        reward_model_endpoint = reward_model_section.get("model_endpoint") or getattr(args, "reward_model_endpoint", None) or getattr(args, "model_endpoint", None)
+
+        reward_args = SimpleNamespace(
+            provider=reward_provider,
+            model=reward_model,
+            mode=reward_mode or args.mode,
+            temperature=args.temperature,
+            top_p=args.top_p,
+            context_length=args.context_length,
+            max_tokens=args.max_tokens,
+            stop_token=args.stop_token,
+            max_obs_length=args.max_obs_length,
+            max_retry=args.max_retry,
+            model_endpoint=reward_model_endpoint,
+        )
+        # Map optional per-model gen overrides into args before constructing LMConfig
+        if isinstance(reward_model_section, dict):
+            gen_overrides = reward_model_section.get("gen") or {}
+            if isinstance(gen_overrides, dict):
+                for k, v in gen_overrides.items():
+                    if v is not None:
+                        setattr(reward_args, k, v)
+        reward_llm_config = lm_config.construct_llm_config(reward_args)  # type: ignore[arg-type]
+        # Read optional defaults from instruction file (new format only: root-level fields)
+        # Use instruction values when present unless CLI explicitly overrides (CLI wins).
+        def _prefer_instruction_root(arg_value, key, builtin_default):
+            inst_value = instruction_obj.get(key) if isinstance(instruction_obj, dict) else None
+            if inst_value is not None and arg_value == builtin_default:
+                return inst_value
+            return arg_value if arg_value is not None else (inst_value if inst_value is not None else builtin_default)
+
+        eff_num_samples = _prefer_instruction_root(getattr(args, "num_samples", 20), "num_samples", 20)
+        eff_temperature = _prefer_instruction_root(getattr(args, "temperature", 1.0), "temperature", 1.0)
+        eff_top_p = _prefer_instruction_root(getattr(args, "top_p", 0.9), "top_p", 0.9)
+        eff_max_refinements = _prefer_instruction_root(getattr(args, "max_refinements", 2), "max_refinements", 2)
         agent = RewardGuidedAgent(
             action_set_tag=args.action_set_tag,
             policy_lm_config=llm_config,
-            reward_lm_config=llm_config,  # Can be configured separately
+            reward_lm_config=reward_llm_config,
             prompt_constructor=prompt_constructor,
             captioning_fn=captioning_fn,
-            planner_ip=args.planner_ip
+            planner_ip=args.planner_ip,
+            num_samples=eff_num_samples,
+            temperature=eff_temperature,
+            top_p=eff_top_p,
+            max_refinements=eff_max_refinements,
         )
     else:
         raise NotImplementedError(

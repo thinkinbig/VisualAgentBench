@@ -141,7 +141,9 @@ class ScriptBrowserEnv(Env[dict[str, Observation], Action]):
         self.context_manager = sync_playwright()
         self.playwright = self.context_manager.__enter__()
         self.browser = self.playwright.chromium.launch(
-            headless=self.headless, slow_mo=self.slow_mo
+            headless=self.headless,
+            slow_mo=self.slow_mo,
+            args=["--force-device-scale-factor=1", "--high-dpi-support=1"],
         )
 
         if config_file:

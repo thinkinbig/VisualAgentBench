@@ -8,7 +8,9 @@ import os
 import random
 import time
 from pathlib import Path
-from typing import List
+from typing import List, Optional, Literal
+
+from pydantic import BaseModel, ValidationError, field_validator
 
 def load_env_from_dotenv() -> None:
     candidates = [
@@ -41,6 +43,14 @@ def load_env_from_dotenv() -> None:
 load_env_from_dotenv()
 
 from agent import construct_agent
+from browser_env import (
+    ScriptBrowserEnv,
+    ActionTypes,
+    Trajectory,
+    StateInfo,
+    create_stop_action,
+)
+from browser_env.helper_functions import get_action_description
 
 # Setup logging
 LOG_FOLDER = "log_files"
@@ -62,6 +72,52 @@ formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
 console_handler.setFormatter(formatter)
 file_handler.setFormatter(formatter)
 
+class RunConfig(BaseModel):
+    instruction_path: str
+    test_config_file: str
+    # Real env options (kept as runtime controls)
+    real_env: bool = False
+    render: bool = False
+    observation_type: Literal[
+        "accessibility_tree",
+        "accessibility_tree_with_captioner",
+        "html",
+        "image",
+        "image_som",
+        "webrl",
+    ] = "accessibility_tree"
+    viewport_width: int = 1280
+    viewport_height: int = 2048
+    sleep_after_execution: float = 0.0
+    max_steps: int = 30
+    planner_ip: str = ""
+    output_response: bool = False
+    log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
+
+    @field_validator("instruction_path")
+    def _validate_instruction_exists(cls, v: str) -> str:
+        if not Path(v).exists():
+            raise ValueError(f"instruction_path not found: {v}")
+        return v
+
+    @field_validator("test_config_file")
+    def _validate_test_config_exists(cls, v: str) -> str:
+        if not Path(v).exists():
+            raise ValueError(f"test_config_file not found: {v}")
+        return v
+
+    @field_validator("viewport_width", "viewport_height", "max_steps")
+    def _validate_positive_int(cls, v: int) -> int:
+        if v <= 0:
+            raise ValueError("must be > 0")
+        return v
+
+    @field_validator("sleep_after_execution")
+    def _validate_sleep(cls, v: float) -> float:
+        if v < 0.0:
+            raise ValueError("sleep_after_execution must be >= 0.0")
+        return v
+
 def config() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Run reward-guided trajectory search agent on WebArena Lite"
@@ -69,109 +125,45 @@ def config() -> argparse.Namespace:
     parser.add_argument(
         "--instruction_path",
         type=str,
-        default="configs/reward_guided_agent.yaml",
+        default="configs/reward_guided_agent.json",
         help="Path to the instruction file"
     )
-    parser.add_argument(
-        "--action_set_tag",
-        type=str,
-        default="id_accessibility_tree",
-        choices=["playwright", "id_accessibility_tree", "som", "webrl_id"],
-        help="Action set tag"
-    )
-    parser.add_argument(
-        "--provider",
-        type=str,
-        default="openai",
-        choices=["openai", "google", "huggingface", "api", "finetune"],
-        help="LLM provider"
-    )
-    parser.add_argument(
-        "--model",
-        type=str,
-        default="gpt-4o-mini",
-        help="Model name"
-    )
-    parser.add_argument(
-        "--reward_model",
-        type=str,
-        default="gpt-4o",
-        help="Reward model name"
-    )
-    parser.add_argument(
-        "--temperature",
-        type=float,
-        default=1.0,
-        help="Temperature for sampling"
-    )
-    parser.add_argument(
-        "--top_p",
-        type=float,
-        default=0.9,
-        help="Top-p for nucleus sampling"
-    )
-    parser.add_argument(
-        "--num_samples",
-        type=int,
-        default=20,
-        help="Number of samples for action generation"
-    )
-    parser.add_argument(
-        "--max_refinements",
-        type=int,
-        default=2,
-        help="Maximum number of refinements"
-    )
-    parser.add_argument(
-        "--mode",
-        type=str,
-        default="chat",
-        choices=["chat", "completion"],
-        help="LLM mode"
-    )
-    parser.add_argument(
-        "--context_length",
-        type=int,
-        default=4096,
-        help="Context length"
-    )
-    parser.add_argument(
-        "--max_tokens",
-        type=int,
-        default=512,
-        help="Max tokens"
-    )
-    parser.add_argument(
-        "--stop_token",
-        type=str,
-        default=None,
-        help="Stop token"
-    )
-    parser.add_argument(
-        "--max_obs_length",
-        type=int,
-        default=2048,
-        help="Max observation length"
-    )
-    parser.add_argument(
-        "--max_retry",
-        type=int,
-        default=3,
-        help="Max retry attempts"
-    )
-    parser.add_argument(
-        "--agent_type",
-        type=str,
-        default="reward_guided",
-        choices=["teacher_forcing", "prompt", "reward_guided"],
-        help="Agent type"
-    )
+    # Removed model/sampling args; now configured via JSON. This script runs reward-guided agent.
     parser.add_argument(
         "--test_config_file",
         type=str,
         required=True,
         help="Path to test configuration file"
     )
+    # Real env options
+    parser.add_argument(
+        "--real_env",
+        action="store_true",
+        help="Run against real browser env instead of offline mock"
+    )
+    parser.add_argument(
+        "--render",
+        action="store_true",
+        help="Render the browser UI"
+    )
+    parser.add_argument(
+        "--observation_type",
+        type=str,
+        default="accessibility_tree",
+        choices=[
+            "accessibility_tree",
+            "accessibility_tree_with_captioner",
+            "html",
+            "image",
+            "image_som",
+            "webrl",
+        ],
+        help="Observation type for real env"
+    )
+    parser.add_argument("--viewport_width", type=int, default=1280)
+    parser.add_argument("--viewport_height", type=int, default=2048)
+    parser.add_argument("--sleep_after_execution", type=float, default=0.0)
+    parser.add_argument("--max_steps", type=int, default=30)
     parser.add_argument(
         "--planner_ip",
         type=str,
@@ -195,32 +187,94 @@ def config() -> argparse.Namespace:
 
 def main():
     args = config()
-    # Update logger level based on flag
-    level = getattr(logging, args.log_level.upper(), logging.INFO)
-    logger.setLevel(level)
-    for h in logger.handlers:
-        h.setLevel(level)
-    
-    # Load test configuration
-    with open(args.test_config_file, "r") as f:
-        test_config = json.load(f)
-    
-    # Resolve instruction path relative to this script if needed
+    # Resolve instruction path relative to this script if needed before validation
     instr_path = Path(args.instruction_path)
     if not instr_path.exists():
         candidate = Path(__file__).parent / args.instruction_path
         if candidate.exists():
             args.instruction_path = str(candidate)
 
-    # Create agent
-    agent = construct_agent(args)
+    # Validate and normalize with Pydantic
+    try:
+        validated = RunConfig(**vars(args))
+    except ValidationError as e:
+        logger.error("Configuration validation failed: %s", e)
+        print(f"Configuration error:\n{e}")
+        return
+    cfg = validated
+
+    # Update logger level based on validated config
+    level = getattr(logging, cfg.log_level.upper(), logging.INFO)
+    logger.setLevel(level)
+    for h in logger.handlers:
+        h.setLevel(level)
+
+    # Load test configuration
+    with open(cfg.test_config_file, "r") as f:
+        test_config = json.load(f)
+
+    # Apply runtime overrides from instruction JSON (if provided)
+    try:
+        from agent.config_schema import load_and_validate_instruction
+        inst = load_and_validate_instruction(cfg.instruction_path)
+        if inst.runtime is not None:
+            rt = inst.runtime
+            # Override known runtime fields
+            if rt.real_env is not None:
+                cfg.real_env = rt.real_env
+            if rt.render is not None:
+                cfg.render = rt.render
+            if rt.observation_type is not None:
+                cfg.observation_type = rt.observation_type  # type: ignore[assignment]
+            if rt.viewport_width is not None:
+                cfg.viewport_width = rt.viewport_width  # type: ignore[assignment]
+            if rt.viewport_height is not None:
+                cfg.viewport_height = rt.viewport_height  # type: ignore[assignment]
+            if rt.sleep_after_execution is not None:
+                cfg.sleep_after_execution = rt.sleep_after_execution  # type: ignore[assignment]
+            if rt.max_steps is not None:
+                cfg.max_steps = rt.max_steps  # type: ignore[assignment]
+            if rt.planner_ip is not None:
+                cfg.planner_ip = rt.planner_ip  # type: ignore[assignment]
+            if rt.output_response is not None:
+                cfg.output_response = rt.output_response  # type: ignore[assignment]
+            if rt.log_level is not None:
+                cfg.log_level = rt.log_level  # type: ignore[assignment]
+    except Exception:
+        pass
+
+    # Create agent with required constructor fields via a lightweight namespace
+    from types import SimpleNamespace
+    agent_args = SimpleNamespace(**vars(cfg))
+    agent_args.agent_type = "reward_guided"
+    # Provide minimal fields expected by construct_llm_config if not present
+    if not hasattr(agent_args, "provider"):
+        agent_args.provider = "openai"
+    if not hasattr(agent_args, "model"):
+        agent_args.model = "gpt-4o-mini"
+    if not hasattr(agent_args, "mode"):
+        agent_args.mode = "chat"
+    # Default generation params (will be overridden by JSON if provided inside agent)
+    defaults = dict(
+        temperature=1.0,
+        top_p=0.9,
+        context_length=4096,
+        max_tokens=512,
+        stop_token=None,
+        max_obs_length=2048,
+        max_retry=3,
+        model_endpoint=None,
+    )
+    for k, v in defaults.items():
+        if not hasattr(agent_args, k):
+            setattr(agent_args, k, v)
+    agent = construct_agent(agent_args)
     
-    # Set action set tag
-    agent.set_action_set_tag(args.action_set_tag)
+    # Action set tag is configured by JSON/constructor
     
     # Reset agent if needed
     if hasattr(agent, 'reset'):
-        agent.reset(args.test_config_file)
+        agent.reset(cfg.test_config_file)
     
     # Extract task information
     task_name = test_config.get("task_name", "Unknown Task")
@@ -229,52 +283,125 @@ def main():
     
     logger.info(f"Starting task: {task_name}")
     logger.info(f"Intent: {intent}")
-    logger.info(f"Agent type: {args.agent_type}")
-    logger.info(f"Policy model: {args.model}")
-    logger.info(f"Reward model: {args.reward_model}")
-    
-    # Simulate trajectory (in real usage, this would come from the environment)
-    trajectory = [
-        {
-            "observation": {
-                "text": "Starting the task...",
-                "image": None
-            },
-            "action": None,
-            "info": {
-                "page": type('Page', (), {'url': 'http://localhost:7770'})()
-            }
-        }
-    ]
-    
-    # Add meta_data with action_history
-    meta_data["action_history"] = ["No previous action"]
-    
-    # Generate action using reward-guided approach
     try:
-        action = agent.next_action(
-            trajectory=trajectory,
-            intent=intent,
-            meta_data=meta_data,
-            images=None,
-            output_response=args.output_response
-        )
-        
-        logger.info(f"Generated action: {action}")
-        logger.info(f"Action type: {action.get('action_type', 'Unknown')}")
-        
-        if args.output_response:
-            print(f"\n=== Reward-Guided Agent Output ===")
-            print(f"Task: {task_name}")
-            print(f"Intent: {intent}")
-            print(f"Generated Action: {action}")
-            print(f"Raw Prediction: {action.get('raw_prediction', 'N/A')}")
-        
-    except Exception as e:
-        logger.error(f"Error generating action: {e}")
-        print(f"Error: {e}")
+        policy_model = getattr(getattr(agent, "policy_lm_config", None), "model", None) or getattr(getattr(agent, "lm_config", None), "model", None)
+        reward_model = getattr(getattr(agent, "reward_lm_config", None), "model", None)
+        logger.info(f"Agent type: reward_guided")
+        if policy_model:
+            logger.info(f"Policy model: {policy_model}")
+        if reward_model:
+            logger.info(f"Reward model: {reward_model}")
+    except Exception:
+        logger.info("Agent initialized")
     
-    logger.info("Task completed")
+    if not cfg.real_env:
+        # Offline mock mode (original behavior)
+        trajectory = [
+            {
+                "observation": {
+                    "text": "Starting the task...",
+                    "image": None
+                },
+                "action": None,
+                "info": {
+                    "page": type('Page', (), {'url': 'http://localhost:7770'})()
+                }
+            }
+        ]
+        meta_data["action_history"] = ["No previous action"]
+        try:
+            action = agent.next_action(
+                trajectory=trajectory,
+                intent=intent,
+                meta_data=meta_data,
+                images=None,
+                output_response=cfg.output_response
+            )
+            logger.info(f"Generated action: {action}")
+            logger.info(f"Action type: {action.get('action_type', 'Unknown')}")
+            if cfg.output_response:
+                print(f"\n=== Reward-Guided Agent Output ===")
+                print(f"Task: {task_name}")
+                print(f"Intent: {intent}")
+                print(f"Generated Action: {action}")
+                print(f"Raw Prediction: {action.get('raw_prediction', 'N/A')}")
+        except Exception as e:
+            logger.error(f"Error generating action: {e}")
+            print(f"Error: {e}")
+        logger.info("Task completed")
+        return
+
+    # Real env mode
+    env = ScriptBrowserEnv(
+        headless=not cfg.render,
+        slow_mo=0,
+        observation_type=cfg.observation_type,
+        current_viewport_only=True,
+        viewport_size={"width": cfg.viewport_width, "height": cfg.viewport_height},
+        save_trace_enabled=False,
+        sleep_after_execution=cfg.sleep_after_execution,
+        captioning_fn=None,
+    )
+
+    try:
+        # Reset env with the provided test config file
+        obs, info = env.reset(options={"config_file": cfg.test_config_file})
+        state_info: StateInfo = {"observation": obs, "info": info}
+        trajectory: Trajectory = [state_info]
+        meta_data["action_history"] = ["None"]
+
+        step_idx = 0
+        while step_idx < cfg.max_steps:
+            # Generate next action
+            try:
+                action = agent.next_action(
+                    trajectory=trajectory,
+                    intent=intent,
+                    meta_data=meta_data,
+                    images=None,
+                    output_response=cfg.output_response,
+                )
+            except Exception as e:
+                logger.error(f"Error generating action at step {step_idx}: {e}")
+                action = create_stop_action(f"ERROR: {str(e)}")
+
+            logger.info(f"Generated action: {action}")
+            trajectory.append(action)
+
+            # Render-friendly action string for history
+            try:
+                action_str = get_action_description(
+                    action,
+                    state_info["info"].get("observation_metadata", {}),
+                    action_set_tag=getattr(agent, "action_set_tag", "id_accessibility_tree"),
+                    prompt_constructor=getattr(agent, "prompt_constructor", None),
+                )
+            except Exception:
+                action_str = str(action)
+
+            meta_data["action_history"].append(action_str)
+
+            if action["action_type"] == ActionTypes.STOP:
+                logger.info("Received STOP action. Terminating.")
+                break
+
+            # Step environment
+            obs, _, terminated, _, info = env.step(action)
+            state_info = {"observation": obs, "info": info}
+            trajectory.append(state_info)
+
+            if terminated:
+                logger.info("Environment signaled termination.")
+                trajectory.append(create_stop_action(""))
+                break
+
+            step_idx += 1
+        logger.info("Task completed")
+    finally:
+        try:
+            env.close()
+        except Exception:
+            pass
 
 if __name__ == "__main__":
     main()
