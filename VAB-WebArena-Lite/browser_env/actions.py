@@ -1819,11 +1819,17 @@ def create_id_based_action(action_str: str) -> Action:
             raise ActionParsingError(f"No action specified: {action_str}")
     match action:
         case "click":
+            # Prefer numeric element_id
             match = re.search(r"click ?\[(\d+)\]", action_str)
-            if not match:
-                raise ActionParsingError(f"Invalid click action {action_str}")
-            element_id = match.group(1)
-            return create_click_action(element_id=element_id)
+            if match:
+                element_id = match.group(1)
+                return create_click_action(element_id=element_id)
+            # Fallback: treat non-numeric token as accessible name, assume button role
+            match_name = re.search(r"click ?\[(.+?)\]", action_str)
+            if match_name:
+                element_name = match_name.group(1)
+                return create_click_action(element_role="button", element_name=element_name)
+            raise ActionParsingError(f"Invalid click action {action_str}")
         case "clear":
             match = re.search(r"clear ?\[(\d+)\]", action_str)
             if not match:
@@ -1844,16 +1850,29 @@ def create_id_based_action(action_str: str) -> Action:
             match = re.search(
                 r"type ?\[(\d+)\] ?\[(.+)\] ?\[(\d+)\]", action_str
             )
-            if not match:
-                raise ActionParsingError(f"Invalid type action {action_str}")
-            element_id, text, enter_flag = (
-                match.group(1),
-                match.group(2),
-                match.group(3),
+            if match:
+                element_id, text, enter_flag = (
+                    match.group(1),
+                    match.group(2),
+                    match.group(3),
+                )
+                if enter_flag == "1":
+                    text += "\n"
+                return create_type_action(text=text, element_id=element_id)
+            # Fallback: non-numeric name, assume textbox role
+            match_name = re.search(
+                r"type ?\[(.+?)\] ?\[(.+)\] ?\[(\d+)\]", action_str
             )
-            if enter_flag == "1":
-                text += "\n"
-            return create_type_action(text=text, element_id=element_id)
+            if match_name:
+                element_name, text, enter_flag = (
+                    match_name.group(1),
+                    match_name.group(2),
+                    match_name.group(3),
+                )
+                if enter_flag == "1":
+                    text += "\n"
+                return create_type_action(text=text, element_role="textbox", element_name=element_name)
+            raise ActionParsingError(f"Invalid type action {action_str}")
         case "press":
             match = re.search(r"press ?\[(.+)\]", action_str)
             if not match:

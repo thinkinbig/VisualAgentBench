@@ -4,9 +4,13 @@
     [
       "Welcome to the homepage. You can see a search bar and navigation menu. Search for a specific product.",
       "I will click on the search input field to begin searching for the product."
+    ],
+    [
+      "You are on a product page with a 'Message seller' button and a textbox labeled 'Message'. Your goal is to send a greeting.",
+      "I will click the Message seller button, then type the message and submit."
     ]
   ],
-  "template": "Objective: {objective}\nURL: {url}\nObservation: {observation}\nPrevious Action: {previous_action}\n\nProvide the next action in this EXACT format:\n\n```\nclick [123]\n```\n\nValid actions (MUST use square brackets):\n- click [element_id] - example: click [123]\n- type [element_id] [text] [enter_flag] - example: type [123] [search] [1]\n- goto [url] - example: goto [http://localhost:7770/shopping]\n- scroll [up|down] - example: scroll [down]\n- press [key] - example: press [Enter]\n- new_tab\n- go_back\n- go_forward\n\nIMPORTANT: Your response MUST end with the action in the format above, with the action wrapped in ``` ``` markers!",
+  "template": "Objective: {objective}\nURL: {url}\nObservation: {observation}\nPrevious Action: {previous_action}\n\nProvide the next action in this EXACT format:\n\n```\nclick [123]\n```\n\nValid actions (MUST use square brackets):\n- click [element_id] - example: click [123]\n- click [element_name] - example: click [Message seller]\n- type [element_id] [text] [enter_flag] - example: type [456] [hello] [1]\n- type [element_name] [text] [enter_flag] - example: type [Message] [hello] [1]\n- goto [url] - example: goto [http://localhost:7770/shopping]\n- scroll [up|down] - example: scroll [down]\n- press [key] - example: press [Enter]\n- new_tab\n- go_back\n- go_forward\n\nTip: To send a message, first click the messaging button, then type the message and set enter_flag to 1 to submit.\n\nIMPORTANT: Your response MUST end with the action in the format above, with the action wrapped in ``` ``` markers!",
   "meta_data": {
     "prompt_constructor": "CoTPromptConstructor",
     "task_name": "reward_guided_web_agent",
@@ -57,7 +61,7 @@
     "viewport_width": 1280,
     "viewport_height": 2048,
     "sleep_after_execution": 0.0,
-    "max_steps": 30,
+    "max_steps": 10,
     "planner_ip": "",
     "output_response": false,
     "log_level": "INFO"

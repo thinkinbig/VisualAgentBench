@@ -75,6 +75,8 @@ class InstructionConfig(BaseModel):
         }
         real_env: Optional[bool] = False
         render: Optional[bool] = False
+        # Optional: when provided, can be used to open an initial URL in real env
+        start_url: Optional[str] = None
         observation_type: Optional[Literal[
             "accessibility_tree",
             "accessibility_tree_with_captioner",

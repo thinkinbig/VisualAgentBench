@@ -52,10 +52,11 @@ from browser_env import (
 )
 from browser_env.helper_functions import get_action_description
 
-# Setup logging
-LOG_FOLDER = "log_files"
-Path(LOG_FOLDER).mkdir(parents=True, exist_ok=True)
-LOG_FILE_NAME = f"{LOG_FOLDER}/reward_guided_log_{time.strftime('%Y%m%d%H%M%S', time.localtime())}_{random.randint(0, 10000)}.log"
+# Setup logging (write relative to this script's directory)
+SCRIPT_DIR = Path(__file__).parent
+LOG_FOLDER = SCRIPT_DIR / "log_files"
+LOG_FOLDER.mkdir(parents=True, exist_ok=True)
+LOG_FILE_NAME = LOG_FOLDER / f"reward_guided_log_{time.strftime('%Y%m%d%H%M%S', time.localtime())}_{random.randint(0, 10000)}.log"
 
 logger = logging.getLogger("reward_guided_logger")
 logger.setLevel(logging.INFO)
@@ -212,6 +213,8 @@ def main():
     # Load test configuration
     with open(cfg.test_config_file, "r") as f:
         test_config = json.load(f)
+    # Normalize start_url preference: CLI JSON runtime.start_url > test_config.start_url > legacy meta_data.start_url
+    start_url_from_test = test_config.get("start_url") or test_config.get("meta_data", {}).get("start_url")
 
     # Apply runtime overrides from instruction JSON (if provided)
     try:
@@ -220,10 +223,14 @@ def main():
         if inst.runtime is not None:
             rt = inst.runtime
             # Override known runtime fields
-            if rt.real_env is not None:
+            # Precedence: CLI > JSON. Only apply JSON when CLI is unset/False.
+            if rt.real_env is not None and cfg.real_env is False:
                 cfg.real_env = rt.real_env
-            if rt.render is not None:
+            if rt.render is not None and cfg.render is False:
                 cfg.render = rt.render
+            # runtime.start_url can override test_config if present
+            if getattr(rt, "start_url", None):
+                start_url_from_test = rt.start_url  # type: ignore[assignment]
             if rt.observation_type is not None:
                 cfg.observation_type = rt.observation_type  # type: ignore[assignment]
             if rt.viewport_width is not None:
@@ -236,7 +243,7 @@ def main():
                 cfg.max_steps = rt.max_steps  # type: ignore[assignment]
             if rt.planner_ip is not None:
                 cfg.planner_ip = rt.planner_ip  # type: ignore[assignment]
-            if rt.output_response is not None:
+            if rt.output_response is not None and cfg.output_response is False:
                 cfg.output_response = rt.output_response  # type: ignore[assignment]
             if rt.log_level is not None:
                 cfg.log_level = rt.log_level  # type: ignore[assignment]
@@ -338,17 +345,28 @@ def main():
         observation_type=cfg.observation_type,
         current_viewport_only=True,
         viewport_size={"width": cfg.viewport_width, "height": cfg.viewport_height},
-        save_trace_enabled=False,
+        save_trace_enabled=True,
         sleep_after_execution=cfg.sleep_after_execution,
         captioning_fn=None,
     )
+    logger.info(f"Real env: {cfg.real_env}, render: {cfg.render}, headless: {not cfg.render}, observation_type: {cfg.observation_type}")
+    if start_url_from_test:
+        logger.info(f"Start URL: {start_url_from_test}")
 
     try:
         # Reset env with the provided test config file
+        # Pass through config file; ScriptBrowserEnv will read start_url from it
         obs, info = env.reset(options={"config_file": cfg.test_config_file})
         state_info: StateInfo = {"observation": obs, "info": info}
         trajectory: Trajectory = [state_info]
         meta_data["action_history"] = ["None"]
+
+        # Save initial HTML snapshot for inspection
+        try:
+            initial_html_path = Path(LOG_FILE_NAME).with_name(Path(LOG_FILE_NAME).stem + "_step_init.html")
+            initial_html_path.write_text(info.get("page").content or "", encoding="utf-8")  # type: ignore[union-attr]
+        except Exception:
+            pass
 
         step_idx = 0
         while step_idx < cfg.max_steps:
@@ -390,12 +408,26 @@ def main():
             state_info = {"observation": obs, "info": info}
             trajectory.append(state_info)
 
+            # Save per-step HTML snapshot for offline verification
+            try:
+                step_html_path = Path(LOG_FILE_NAME).with_name(Path(LOG_FILE_NAME).stem + f"_step_{step_idx}.html")
+                step_html_path.write_text(info.get("page").content or "", encoding="utf-8")  # type: ignore[union-attr]
+            except Exception:
+                pass
+
             if terminated:
                 logger.info("Environment signaled termination.")
                 trajectory.append(create_stop_action(""))
                 break
 
             step_idx += 1
+        # Save Playwright trace for visual inspection
+        try:
+            trace_path = Path(LOG_FILE_NAME).with_name(Path(LOG_FILE_NAME).stem + "_trace.zip")
+            env.save_trace(trace_path)
+            logger.info(f"Saved Playwright trace to {trace_path}")
+        except Exception:
+            pass
         logger.info("Task completed")
     finally:
         try:
