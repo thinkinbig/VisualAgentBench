@@ -259,7 +259,7 @@ class ScriptBrowserEnv(Env[dict[str, Observation], Action]):
         observation = self._get_obs()
         observation_metadata = self._get_obs_metadata()
         info = {
-            "page": DetachedPage(self.page.url, ""),
+            "page": DetachedPage(self.page.url, self.page.content()),
             "fail_error": "",
             "observation_metadata": observation_metadata,
         }

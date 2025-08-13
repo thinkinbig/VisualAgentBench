@@ -1,0 +1,10 @@
+{
+  "task_name": "Immediate Message",
+  "intent": "Do not browse. Immediately output send_msg_to_user(\"Hello from real env!\").",
+  "start_url": "https://example.com",
+  "meta_data": {
+    "action_history": []
+  }
+}
+
+

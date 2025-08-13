@@ -1809,6 +1809,14 @@ def create_playwright_action(playwright_code: str) -> Action:
 def create_id_based_action(action_str: str) -> Action:
     """Main function to return individual id based action"""
     action_str = action_str.strip()
+    # Support Web-Shepherd style send_msg/send_msg_to_user("...") as a STOP action
+    try:
+        msg_match = re.search(r"send_msg(?:_to_user)?\s*\(\s*([\"\'])(.*?)\1\s*\)", action_str, flags=re.DOTALL)
+        if msg_match:
+            answer = msg_match.group(2)
+            return create_stop_action(answer)
+    except Exception:
+        pass
     if "[" in action_str:
         action = action_str.split("[")[0].strip()
     else:
@@ -1956,6 +1964,17 @@ def create_webrl_id_based_action(action_str: str) -> Action:
         # 提取参数
         args = func_call.args
         kwargs = func_call.keywords
+        # 记录位置参数（用于 send_msg_to_user("...") 等）
+        if args:
+            extracted_args = []
+            for a in args:
+                try:
+                    extracted_args.append(ast.literal_eval(a))
+                except Exception:
+                    # 忽略无法解析的复杂参数
+                    pass
+            if extracted_args:
+                result["args"] = extracted_args
         for kw in kwargs:
             if func_name == "do" and kw.arg == "action":
                 result["action"] = ast.literal_eval(kw.value)
@@ -2020,6 +2039,14 @@ def create_webrl_id_based_action(action_str: str) -> Action:
                     return create_search_action(text=text, element_id=element_id)
         case "exit": # stop answer
             answer = action['kwargs']['message']
+            return create_stop_action(answer)
+        case "send_msg_to_user" | "send_msg":
+            # 支持 Web-Shepherd 的消息动作，等价于 STOP(answer)
+            answer = ""
+            if "args" in action and isinstance(action["args"], list) and len(action["args"]) > 0:
+                answer = str(action["args"][0])
+            elif "kwargs" in action and isinstance(action["kwargs"], dict):
+                answer = str(action["kwargs"].get("message", ""))
             return create_stop_action(answer)
 
     raise ActionParsingError(f"Invalid action {action_str}")

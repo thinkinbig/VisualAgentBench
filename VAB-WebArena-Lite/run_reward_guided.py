@@ -51,6 +51,7 @@ from browser_env import (
     create_stop_action,
 )
 from browser_env.helper_functions import get_action_description
+from browser_env.actions import create_id_based_action
 
 # Setup logging (write relative to this script's directory)
 SCRIPT_DIR = Path(__file__).parent
@@ -94,6 +95,8 @@ class RunConfig(BaseModel):
     planner_ip: str = ""
     output_response: bool = False
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
+    # Test-only: when provided, bypass LLM and execute this action string directly
+    mock_action: Optional[str] = None
 
     @field_validator("instruction_path")
     def _validate_instruction_exists(cls, v: str) -> str:
@@ -182,6 +185,12 @@ def config() -> argparse.Namespace:
         default="INFO",
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
         help="Logging level for console and file"
+    )
+    parser.add_argument(
+        "--mock_action",
+        type=str,
+        default=None,
+        help="Bypass LLM and execute this action (e.g., send_msg_to_user('Hello'))",
     )
     
     return parser.parse_args()
@@ -400,7 +409,18 @@ def main():
             meta_data["action_history"].append(action_str)
 
             if action["action_type"] == ActionTypes.STOP:
+                final_answer = action.get("answer", "")
                 logger.info("Received STOP action. Terminating.")
+                if final_answer:
+                    logger.info(f"Final answer (send_msg_to_user): {final_answer}")
+                    if cfg.output_response:
+                        print(f"\n=== Final Answer ===\n{final_answer}\n")
+                # Save a step_0 HTML as well when terminating before any env.step()
+                try:
+                    step0_path = Path(LOG_FILE_NAME).with_name(Path(LOG_FILE_NAME).stem + f"_step_0.html")
+                    step0_path.write_text(info.get("page").content or "", encoding="utf-8")  # type: ignore[union-attr]
+                except Exception:
+                    pass
                 break
 
             # Step environment
