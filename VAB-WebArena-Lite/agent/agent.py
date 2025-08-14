@@ -395,9 +395,15 @@ class RewardGuidedAgent(Agent):
             meta_cfg = instruction_obj.get("meta_data", {}) if isinstance(instruction_obj, dict) else {}
             self._patience_limit: int = int(meta_cfg.get("patience_limit", 5))
             self._min_progress_epsilon: float = float(meta_cfg.get("min_progress_epsilon", 0.1))
+            # Derive max turns from instruction.runtime.max_steps if available
+            runtime_cfg = instruction_obj.get("runtime", {}) if isinstance(instruction_obj, dict) else {}
+            self._max_turns: int = int(runtime_cfg.get("max_steps", 30))
         except Exception:
             self._patience_limit = 5
             self._min_progress_epsilon = 0.1
+            self._max_turns = 30
+        # Penalty max (fixed as per design, independent of metadata)
+        self._penalty_max: float = 10.0
     
     def set_action_set_tag(self, tag: str) -> None:
         self.action_set_tag = tag
@@ -661,14 +667,14 @@ class RewardGuidedAgent(Agent):
             return 0
 
     def _compute_turn_penalty(self, turn_index: int) -> float:
-        """Monotonically increasing penalty with turns to discourage dithering.
-        Linear schedule: base 0.2 per turn, capped at 5.0.
-        """
+        """Linear penalty scaled by configured max turns: maps 0..max_turns to 0..penalty_max."""
         try:
-            penalty = 0.2 * float(turn_index)
+            turns = max(1.0, float(self._max_turns))
+            slope = self._penalty_max / turns
+            penalty = slope * max(0.0, float(turn_index))
         except Exception:
             penalty = 0.0
-        return float(min(5.0, max(0.0, penalty)))
+        return float(min(self._penalty_max, max(0.0, penalty)))
     
     def _create_reward_prompt(
         self, 
@@ -952,9 +958,10 @@ class RewardGuidedAgent(Agent):
             skip_threshold = float(meta_cfg.get("skip_refinement_threshold", 8.5))
         except Exception:
             skip_threshold = 8.5
-        if effective_best_score >= skip_threshold:
+        # Skip refinement uses raw score (no penalty)
+        if best_score >= skip_threshold:
             if output_response:
-                print(f"Skipping refinement (eff_score {effective_best_score:.1f} >= {skip_threshold}, penalty {penalty:.2f})", flush=True)
+                print(f"Skipping refinement (score {best_score:.1f} >= {skip_threshold})", flush=True)
             return best_action
 
         # Step 5: Refinement process (up to max_refinements times)

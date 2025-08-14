@@ -29,7 +29,7 @@
     "early_majority_threshold": 2,
     "sample_time_budget_sec": 2.0
   },
-  "num_samples": 5,
+  "num_samples": 10,
   "temperature": 1.0,
   "top_p": 0.9,
   "max_refinements": 2,
