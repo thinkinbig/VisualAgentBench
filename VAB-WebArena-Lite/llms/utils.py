@@ -18,6 +18,42 @@ from llms import (
 APIInput = str | list[Any] | dict[str, Any]
 
 
+def build_api_input_for_text(
+    cfg: lm_config.LMConfig,
+    system_text: str,
+    user_text: str,
+) -> APIInput:
+    """Build provider/mode-specific API input for a simple system+user text pair.
+    Keeps provider branching out of agent code while delegating sending to call_llm.
+    """
+    if cfg.provider == "openai":
+        if cfg.mode == "chat":
+            return [
+                {"role": "system", "content": system_text},
+                {"role": "user", "content": user_text},
+            ]
+        elif cfg.mode == "completion":
+            return f"{system_text}\n\n{user_text}"
+        else:
+            raise ValueError(f"OpenAI models do not support mode {cfg.mode}")
+    elif cfg.provider == "google":
+        if cfg.mode == "completion":
+            return [system_text, user_text]
+        else:
+            raise ValueError(f"Gemini models do not support mode {cfg.mode}")
+    elif cfg.provider == "huggingface":
+        return f"{system_text}\n\n{user_text}"
+    elif cfg.provider in ["api", "finetune"]:
+        if cfg.mode == "chat":
+            return [
+                {"role": "system", "content": system_text},
+                {"role": "user", "content": user_text},
+            ]
+        else:
+            return f"{system_text}\n\n{user_text}"
+    else:
+        raise NotImplementedError(f"Provider {cfg.provider} not implemented")
+
 def call_llm(
     lm_config: lm_config.LMConfig,
     prompt: APIInput,

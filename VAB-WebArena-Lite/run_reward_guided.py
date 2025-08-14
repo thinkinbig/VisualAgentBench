@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import List, Optional, Literal
 
 from pydantic import BaseModel, ValidationError, field_validator
+from beartype import beartype
 
 def load_env_from_dotenv() -> None:
     candidates = [
@@ -51,7 +52,6 @@ from browser_env import (
     create_stop_action,
 )
 from browser_env.helper_functions import get_action_description
-from browser_env.actions import create_id_based_action
 
 # Setup logging (write relative to this script's directory)
 SCRIPT_DIR = Path(__file__).parent
@@ -95,8 +95,6 @@ class RunConfig(BaseModel):
     planner_ip: str = ""
     output_response: bool = False
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
-    # Test-only: when provided, bypass LLM and execute this action string directly
-    mock_action: Optional[str] = None
 
     @field_validator("instruction_path")
     def _validate_instruction_exists(cls, v: str) -> str:
@@ -122,6 +120,7 @@ class RunConfig(BaseModel):
             raise ValueError("sleep_after_execution must be >= 0.0")
         return v
 
+@beartype
 def config() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Run reward-guided trajectory search agent on WebArena Lite"
@@ -186,16 +185,11 @@ def config() -> argparse.Namespace:
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
         help="Logging level for console and file"
     )
-    parser.add_argument(
-        "--mock_action",
-        type=str,
-        default=None,
-        help="Bypass LLM and execute this action (e.g., send_msg_to_user('Hello'))",
-    )
     
     return parser.parse_args()
 
-def main():
+@beartype
+def main() -> None:
     args = config()
     # Resolve instruction path relative to this script if needed before validation
     instr_path = Path(args.instruction_path)
@@ -370,12 +364,7 @@ def main():
         trajectory: Trajectory = [state_info]
         meta_data["action_history"] = ["None"]
 
-        # Save initial HTML snapshot for inspection
-        try:
-            initial_html_path = Path(LOG_FILE_NAME).with_name(Path(LOG_FILE_NAME).stem + "_step_init.html")
-            initial_html_path.write_text(info.get("page").content or "", encoding="utf-8")  # type: ignore[union-attr]
-        except Exception:
-            pass
+        # Removed: initial HTML snapshot saving
 
         step_idx = 0
         while step_idx < cfg.max_steps:
@@ -415,12 +404,7 @@ def main():
                     logger.info(f"Final answer (send_msg_to_user): {final_answer}")
                     if cfg.output_response:
                         print(f"\n=== Final Answer ===\n{final_answer}\n")
-                # Save a step_0 HTML as well when terminating before any env.step()
-                try:
-                    step0_path = Path(LOG_FILE_NAME).with_name(Path(LOG_FILE_NAME).stem + f"_step_0.html")
-                    step0_path.write_text(info.get("page").content or "", encoding="utf-8")  # type: ignore[union-attr]
-                except Exception:
-                    pass
+                # Removed: step_0 HTML snapshot saving
                 break
 
             # Step environment
@@ -428,12 +412,7 @@ def main():
             state_info = {"observation": obs, "info": info}
             trajectory.append(state_info)
 
-            # Save per-step HTML snapshot for offline verification
-            try:
-                step_html_path = Path(LOG_FILE_NAME).with_name(Path(LOG_FILE_NAME).stem + f"_step_{step_idx}.html")
-                step_html_path.write_text(info.get("page").content or "", encoding="utf-8")  # type: ignore[union-attr]
-            except Exception:
-                pass
+            # Removed: per-step HTML snapshot saving
 
             if terminated:
                 logger.info("Environment signaled termination.")

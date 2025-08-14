@@ -1,25 +1,35 @@
 {
-  "intro": "You are a web agent that can interact with web pages. Your goal is to complete the given task by taking appropriate actions.",
+  "intro": "You are a focused web agent operating on a shopping website at localhost:7770. Your goal is to complete the task efficiently with minimal steps.\n\nSuccess criteria:\n- Stay on localhost:7770 unless the goal explicitly requires external navigation.\n- Prefer actions that move toward the purchase pipeline: open the correct category, filter by attributes (e.g., color=red), sort by price (low to high), click the cheapest valid item, add to cart, proceed to checkout.\n- Avoid no-op or redundant actions (random clicks/scrolls without purpose).\n- If the current page does not contain the needed affordance, first try scroll [down] then navigate within site structure.\n\nAction style:\n- Prefer using element_id when present over element_name.\n- Output only one final action, wrapped in code fences, with no extra text after the code block.",
   "examples": [
     [
       "Welcome to the homepage. You can see a search bar and navigation menu. Search for a specific product.",
       "I will click on the search input field to begin searching for the product."
     ],
     [
-      "You are on a product page with a 'Message seller' button and a textbox labeled 'Message'. Your goal is to send a greeting.",
-      "I will click the Message seller button, then type the message and submit."
+      "You are on the category page 'Blankets & Throws'. Visible controls: 'Color' filter (with 'red'), 'Sort by' (supports 'price:low_to_high'). Product list is partially visible.",
+      "I will filter by red and sort by low price, then click the cheapest visible red blanket.\n\n```\nclick [color_filter_red]\n```\n"
     ]
   ],
-  "template": "Objective: {objective}\nURL: {url}\nObservation: {observation}\nPrevious Action: {previous_action}\n\nProvide the next action in this EXACT format:\n\n```\nclick [123]\n```\n\nValid actions (MUST use square brackets):\n- click [element_id] - example: click [123]\n- click [element_name] - example: click [Message seller]\n- type [element_id] [text] [enter_flag] - example: type [456] [hello] [1]\n- type [element_name] [text] [enter_flag] - example: type [Message] [hello] [1]\n- goto [url] - example: goto [http://localhost:7770/shopping]\n- scroll [up|down] - example: scroll [down]\n- press [key] - example: press [Enter]\n- new_tab\n- go_back\n- go_forward\n\nTip: To send a message, first click the messaging button, then type the message and set enter_flag to 1 to submit.\n\nIMPORTANT: Your response MUST end with the action in the format above, with the action wrapped in ``` ``` markers!",
+  "template": "Objective: {objective}\nURL: {url}\nObservation: {observation}\nPrevious Action: {previous_action}\n\nFollow these rules:\n- Remain on localhost:7770 unless explicitly told otherwise.\n- Prefer element_id; only use element_name if id is missing.\n- If filtering/sorting controls are present, use them before clicking items.\n- If nothing relevant is visible, use scroll [down] once and reassess.\n\nOutput exactly one action in this format (no extra text after the code block):\n```\nclick [123]\n```",
   "meta_data": {
     "prompt_constructor": "CoTPromptConstructor",
     "task_name": "reward_guided_web_agent",
     "description": "Reward-guided Trajectory Search Agent for WebArena Lite",
     "answer_phrase": "```",
     "keywords": ["objective", "url", "observation", "previous_action"],
-    "action_splitter": "```"
+    "action_splitter": "```",
+    "reward_prompt_template": "You are a reward model for web agents. Evaluate the proposed next action for the given goal and state, and reply with 'Score: X.X' only.\n\nGoal: {objective}\n\nCurrent State: {current_state}\n\nProposed Action: {proposed_action}\n\nScoring rubric (0.0 to 10.0):\n+ Strongly positive: actions that directly progress toward the goal (e.g., open correct category, apply 'red' filter, sort by price low-to-high, click the cheapest valid item, add to cart, proceed to checkout).\n+ Mildly positive: exploratory but relevant (e.g., one-time scroll [down] to reveal items).\n- Negative: irrelevant clicks/scrolls, navigating off localhost:7770 without instruction, repetitive no-op actions, going backward in the purchase funnel.\n\nRespond with: Score: X.X",
+    "refinement_context_template": "You are refining a web action based on feedback.\n\nGoal: {objective}\n\nCurrent State: {current_state}\n\nOriginal Action: {original_action}\n\nFeedback: {feedback}\n\nConstraints:\n- Stay on localhost:7770.\n- Prefer element_id over names.\n- Do not repeat previously low-scoring actions.\n- Return exactly one improved action in the same format, wrapped in code fences, and no extra text after.",
+    "reward_score_regex": "Score:\\s*([\\d.]+)",
+    "skip_refinement_threshold": 8.5,
+    "reject_threshold": 2.0,
+    "low_score_behavior": "stop",
+    "min_refine_improvement": 0.5,
+    "target_unique_candidates": 2,
+    "early_majority_threshold": 2,
+    "sample_time_budget_sec": 2.0
   },
-  "num_samples": 20,
+  "num_samples": 5,
   "temperature": 1.0,
   "top_p": 0.9,
   "max_refinements": 2,

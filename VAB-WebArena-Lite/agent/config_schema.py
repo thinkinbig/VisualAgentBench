@@ -43,6 +43,10 @@ class MetaDataConfig(BaseModel):
     answer_phrase: str
     keywords: List[str]
     action_splitter: str
+    # Optional extensions for reward-guided prompts
+    reward_prompt_template: Optional[str] = None
+    refinement_context_template: Optional[str] = None
+    reward_score_regex: Optional[str] = None
 
 
 class InstructionConfig(BaseModel):
