@@ -326,9 +326,12 @@ class ActionTypes(IntEnum):
     STOP = 17
     CLEAR = 18
     
+    # message actions
+    SEND_MESSAGE = 21
+    
     # webrl actions
-    SEARCH = 19
-    SELECT_DROPDOWN_OPTION = 20
+    SEARCH = 22
+    SELECT_DROPDOWN_OPTION = 23
 
     def __str__(self) -> str:
         return f"ACTION_TYPES.{self.name}"
@@ -379,6 +382,8 @@ def is_equivalent(a: Action, b: Action) -> bool:
         case ActionTypes.CHECK | ActionTypes.SELECT_OPTION:
             return a["pw_code"] == b["pw_code"]
         case ActionTypes.STOP:
+            return a["answer"] == b["answer"]
+        case ActionTypes.SEND_MESSAGE:
             return a["answer"] == b["answer"]
         case _:
             raise ValueError(f"Unknown action type: {a['action_type']}")
@@ -509,6 +514,14 @@ def create_none_action() -> Action:
 def create_stop_action(answer: str) -> Action:
     action = create_none_action()
     action.update({"action_type": ActionTypes.STOP, "answer": answer})
+    return action
+
+
+@beartype
+def create_send_message_action(message: str) -> Action:
+    """Create a send message action for user communication"""
+    action = create_none_action()
+    action.update({"action_type": ActionTypes.SEND_MESSAGE, "answer": message})
     return action
 
 
@@ -1809,12 +1822,12 @@ def create_playwright_action(playwright_code: str) -> Action:
 def create_id_based_action(action_str: str) -> Action:
     """Main function to return individual id based action"""
     action_str = action_str.strip()
-    # Support Web-Shepherd style send_msg/send_msg_to_user("...") as a STOP action
+    # Support Web-Shepherd style send_msg/send_msg_to_user("...") as a SEND_MESSAGE action
     try:
         msg_match = re.search(r"send_msg(?:_to_user)?\s*\(\s*([\"\'])(.*?)\1\s*\)", action_str, flags=re.DOTALL)
         if msg_match:
-            answer = msg_match.group(2)
-            return create_stop_action(answer)
+            message = msg_match.group(2)
+            return create_send_message_action(message)
     except Exception:
         pass
     if "[" in action_str:

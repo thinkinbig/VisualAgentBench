@@ -360,10 +360,10 @@ class RewardGuidedAgent(Agent):
         prompt_constructor: PromptConstructor,
         captioning_fn=None,
         planner_ip=None,
-        num_samples: int = 20,
+        num_samples: int = 10,
         temperature: float = 1.0,
         top_p: float = 0.9,
-        max_refinements: int = 2
+        max_refinements: int = 1
     ) -> None:
         super().__init__()
         self.action_set_tag = action_set_tag
@@ -386,24 +386,13 @@ class RewardGuidedAgent(Agent):
         else:
             self.multimodal_inputs = False
 
-        # Strong-convergence controls (instance-local; no external metadata required)
-        self._patience_counter: int = 0
-        self._prev_effective_score: float | None = None
-        # Defaults; optionally tuned from instruction if present
+        # Simple early stopping controls
         try:
             instruction_obj = getattr(prompt_constructor, "instruction", {})
             meta_cfg = instruction_obj.get("meta_data", {}) if isinstance(instruction_obj, dict) else {}
-            self._patience_limit: int = int(meta_cfg.get("patience_limit", 5))
-            self._min_progress_epsilon: float = float(meta_cfg.get("min_progress_epsilon", 0.1))
-            # Derive max turns from instruction.runtime.max_steps if available
-            runtime_cfg = instruction_obj.get("runtime", {}) if isinstance(instruction_obj, dict) else {}
-            self._max_turns: int = int(runtime_cfg.get("max_steps", 30))
+            self._reject_threshold: float = float(meta_cfg.get("reject_threshold", 2.0))
         except Exception:
-            self._patience_limit = 5
-            self._min_progress_epsilon = 0.1
-            self._max_turns = 30
-        # Penalty max (fixed as per design, independent of metadata)
-        self._penalty_max: float = 10.0
+            self._reject_threshold = 2.0
     
     def set_action_set_tag(self, tag: str) -> None:
         self.action_set_tag = tag
@@ -439,22 +428,9 @@ class RewardGuidedAgent(Agent):
             elif not self.multimodal_inputs:
                 print("WARNING: Input image provided but no image captioner available.")
         
-        # Generate multiple samples with nucleus sampling (with early-exit)
-        # Early-exit controls from instruction.meta_data
-        try:
-            instruction_obj = getattr(self.prompt_constructor, "instruction", {})
-            meta_cfg = instruction_obj.get("meta_data", {}) if isinstance(instruction_obj, dict) else {}
-            early_unique_target = int(meta_cfg.get("target_unique_candidates", 3))
-            early_majority_threshold = int(meta_cfg.get("early_majority_threshold", 2))
-            sample_time_budget_sec = float(meta_cfg.get("sample_time_budget_sec", 0.0))  # 0 means no budget
-        except Exception:
-            early_unique_target = 3
-            early_majority_threshold = 2
-            sample_time_budget_sec = 0.0
-
+        # Generate multiple samples with nucleus sampling
         unique_action_keys: set[str] = set()
         action_key_counts: Dict[str, int] = {}
-        sample_loop_start = time.time()
 
         for sample_idx in range(self.num_samples):
             try:
@@ -511,24 +487,6 @@ class RewardGuidedAgent(Agent):
                 action_key = str(action)
                 action_key_counts[action_key] = action_key_counts.get(action_key, 0) + 1
                 unique_action_keys.add(action_key)
-                if early_unique_target > 0 and len(unique_action_keys) >= early_unique_target:
-                    self.logger.debug(
-                        "Early-exit: reached target_unique_candidates=%d at sample %d",
-                        early_unique_target, sample_idx,
-                    )
-                    break
-                if early_majority_threshold > 0 and action_key_counts[action_key] >= early_majority_threshold:
-                    self.logger.debug(
-                        "Early-exit: action %s reached majority threshold=%d at sample %d",
-                        action_key, early_majority_threshold, sample_idx,
-                    )
-                    break
-                if sample_time_budget_sec > 0.0 and (time.time() - sample_loop_start) >= sample_time_budget_sec:
-                    self.logger.debug(
-                        "Early-exit: sampling time budget %.2fs exceeded at sample %d",
-                        sample_time_budget_sec, sample_idx,
-                    )
-                    break
                 
             except Exception as e:
                 self.logger.warning("Error generating sample %d: %s", sample_idx, e, exc_info=True)
@@ -652,29 +610,7 @@ class RewardGuidedAgent(Agent):
                 for a in actions
             ]
 
-    def _get_turn_index(self, meta_data: dict[str, Any], trajectory: Trajectory) -> int:
-        """Infer the current turn index (0-based) from metadata or trajectory."""
-        try:
-            if isinstance(meta_data, dict) and isinstance(meta_data.get("action_history"), list):
-                # First entry is a placeholder (e.g., "None")
-                return max(0, len(meta_data["action_history"]) - 1)
-        except Exception:
-            pass
-        # Fallback: estimate from trajectory length (state, action, state, ...)
-        try:
-            return max(0, (len(trajectory) - 1) // 2)
-        except Exception:
-            return 0
 
-    def _compute_turn_penalty(self, turn_index: int) -> float:
-        """Linear penalty scaled by configured max turns: maps 0..max_turns to 0..penalty_max."""
-        try:
-            turns = max(1.0, float(self._max_turns))
-            slope = self._penalty_max / turns
-            penalty = slope * max(0.0, float(turn_index))
-        except Exception:
-            penalty = 0.0
-        return float(min(self._penalty_max, max(0.0, penalty)))
     
     def _create_reward_prompt(
         self, 
@@ -694,6 +630,20 @@ class RewardGuidedAgent(Agent):
                 proposed_action = raw_pred.replace("```", "").strip()
 
         current_text = trajectory[-1]["observation"].get("text", "No text observation")
+        
+        # Build action history from trajectory
+        action_history = []
+        for i in range(1, len(trajectory), 2):  # Skip states, get actions
+            if i < len(trajectory):
+                action_info = trajectory[i]
+                if isinstance(action_info, dict) and "action" in action_info:
+                    action_str = str(action_info["action"])
+                    # Clean up action string for readability
+                    if "raw_prediction" in action_info:
+                        action_str = action_info["raw_prediction"]
+                    action_history.append(f"Step {len(action_history)+1}: {action_str}")
+        
+        action_history_text = "\n".join(action_history) if action_history else "No previous actions"
 
         # Allow instruction meta_data to override reward prompt template
         try:
@@ -708,21 +658,27 @@ class RewardGuidedAgent(Agent):
                     objective=intent,
                     current_state=current_text,
                     proposed_action=proposed_action,
+                    action_history=action_history_text,
                 )
             except Exception:
                 pass
 
-        # Default prompt
+        # Default prompt with action history
         prompt = (
-            "You are a reward model that evaluates web agent actions. Given the current state and an action, "
+            "You are a reward model that evaluates web agent actions. Given the current state, action history, and a proposed action, "
             "predict how good this action is for achieving the goal.\n\n"
             f"Goal: {intent}\n\n"
+            f"Action History:\n{action_history_text}\n\n"
             f"Current State: {current_text}\n\n"
             f"Proposed Action: {proposed_action}\n\n"
-            "Please evaluate this action and provide a score from 0.0 to 10.0, where:\n"
+            "Please evaluate this action considering the context of previous actions and provide a score from 0.0 to 10.0, where:\n"
             "- 0.0: Completely wrong action that will not help achieve the goal\n"
             "- 5.0: Neutral action that neither helps nor hurts\n"
             "- 10.0: Perfect action that directly helps achieve the goal\n\n"
+            "Consider:\n"
+            "- Does this action build logically on previous actions?\n"
+            "- Is it a natural next step in the task progression?\n"
+            "- Does it avoid repeating ineffective previous actions?\n\n"
             "Respond with: Score: X.X"
         )
         return prompt
@@ -871,180 +827,55 @@ class RewardGuidedAgent(Agent):
             print(f'Agent: {best_response}', flush=True)
             print(f'Reward Score: {best_score}', flush=True)
         
-        # Apply turn-based penalty for thresholds/decisions
-        turn_index = self._get_turn_index(meta_data, trajectory)
-        penalty = self._compute_turn_penalty(turn_index)
-        effective_best_score = max(0.0, best_score - penalty)
-        self.logger.debug("Turn=%d, penalty=%.2f, effective_best_score=%.2f", turn_index, penalty, effective_best_score)
-
-        # Early rejection for very low effective scores
-        try:
-            instruction_obj = getattr(self.prompt_constructor, "instruction", {})
-            meta_cfg = instruction_obj.get("meta_data", {}) if isinstance(instruction_obj, dict) else {}
-            reject_threshold = float(meta_cfg.get("reject_threshold", 2.0))
-            low_score_behavior = str(meta_cfg.get("low_score_behavior", "resample")).strip().lower()
-        except Exception:
-            reject_threshold = 2.0
-            low_score_behavior = "stop"
-
-        if effective_best_score < reject_threshold:
+        # Early rejection for very low scores
+        if best_score < self._reject_threshold:
             self.logger.info(
-                "Best score %.3f below reject_threshold %.3f; behavior=%s",
-                effective_best_score, reject_threshold, low_score_behavior,
+                "Best score %.3f below reject_threshold %.3f, stopping",
+                best_score, self._reject_threshold,
             )
-            if low_score_behavior == "stop":
-                action = create_stop_action(f"Low confidence (eff_score={effective_best_score:.2f}, penalty={penalty:.2f})")
-                action["raw_prediction"] = best_response
-                return action
-            elif low_score_behavior == "none":
-                action = create_none_action()
-                action["raw_prediction"] = f"Low confidence (eff_score={effective_best_score:.2f}, penalty={penalty:.2f})"
-                return action
-            else:
-                # resample once with slightly higher diversity
-                old_temp, old_top_p = self.temperature, self.top_p
-                try:
-                    self.temperature = min(self.temperature + 0.2, 1.3)
-                    self.top_p = min(self.top_p + 0.1, 0.95)
-                    candidates2 = self._generate_action_candidates(trajectory, intent, meta_data, images)
-                finally:
-                    self.temperature, self.top_p = old_temp, old_top_p
+            action = create_stop_action(f"Low confidence (score={best_score:.2f})")
+            action["raw_prediction"] = best_response
+            return action
 
-                action_counts2 = {}
-                for response2, action2 in candidates2:
-                    key2 = str(action2)
-                    action_counts2.setdefault(key2, []).append((response2, action2))
-                sorted2 = sorted(action_counts2.items(), key=lambda x: len(x[1]), reverse=True)
-                top2 = [lst[0] for _, lst in sorted2[:3]]
 
-                scored2: list[tuple[float, str, Action]] = []
-                if top2:
-                    try:
-                        actions_for_batch2 = [a for _, a in top2]
-                        scores2 = self._score_actions_with_reward_model(actions_for_batch2, trajectory, intent, meta_data)
-                        for (resp2, act2), sc2 in zip(top2, scores2):
-                            scored2.append((sc2, resp2, act2))
-                    except Exception:
-                        for resp2, act2 in top2:
-                            sc2 = self._score_action_with_reward_model(act2, trajectory, intent, meta_data)
-                            scored2.append((sc2, resp2, act2))
 
-                if scored2:
-                    scored2.sort(key=lambda x: x[0], reverse=True)
-                    new_best_score, new_best_resp, new_best_action = scored2[0]
-                    new_eff = max(0.0, new_best_score - penalty)
-                    self.logger.info("Resample eff_score=%.3f (prev_eff=%.3f)", new_eff, effective_best_score)
-                    if new_eff >= reject_threshold:
-                        best_score, best_response, best_action = new_best_score, new_best_resp, new_best_action
-                        effective_best_score = new_eff
-                        if output_response:
-                            print(f"Resample accepted: eff_score {new_eff:.1f}", flush=True)
-                    else:
-                        # still low: terminate decisively
-                        action = create_stop_action(
-                            f"Low confidence after resample (eff_score={new_eff:.2f}, penalty={penalty:.2f})"
-                        )
-                        action["raw_prediction"] = best_response
-                        return action
-                else:
-                    action = create_stop_action("Failed to generate candidates on resample")
-                    action["raw_prediction"] = best_response
-                    return action
-
-        # Optional: skip refinement if score already high enough
-        try:
-            instruction_obj = getattr(self.prompt_constructor, "instruction", {})
-            meta_cfg = instruction_obj.get("meta_data", {}) if isinstance(instruction_obj, dict) else {}
-            skip_threshold = float(meta_cfg.get("skip_refinement_threshold", 8.5))
-        except Exception:
-            skip_threshold = 8.5
-        # Skip refinement uses raw score (no penalty)
-        if best_score >= skip_threshold:
-            if output_response:
-                print(f"Skipping refinement (score {best_score:.1f} >= {skip_threshold})", flush=True)
-            return best_action
-
-        # Step 5: Refinement process (up to max_refinements times)
-        current_action = best_action
-        current_score = best_score
-        refinement_count = 0
-        
-        while refinement_count < self.max_refinements:
-            # Get feedback from reward model (excluding the actual score)
-            feedback_prompt = self._create_reward_prompt(current_action, trajectory, intent, meta_data)
+        # Step 5: Simple refinement (always accept the first refinement)
+        if self.max_refinements > 0:
             try:
+                # Get feedback from reward model
+                feedback_prompt = self._create_reward_prompt(best_action, trajectory, intent, meta_data)
                 api_input_fb = build_api_input_for_text(
                     self.reward_lm_config,
                     "You are a reward model for web agents. Read the user's content and output critique and a single action in the same format, wrapped in code fences.",
                     feedback_prompt,
                 )
                 feedback_response = call_llm(self.reward_lm_config, api_input_fb)
-            except Exception as e:
-                self.logger.warning("Reward model failed during refinement feedback: %s", e, exc_info=True)
-                break
-            
-            # Remove score information to get pure feedback
-            feedback = feedback_response.replace(f"Score: {current_score}", "").strip()
-            self.logger.debug("Refinement feedback: %r", feedback)
-            
-            # Refine the action
-            refined_response, refined_action = self._refine_action(
-                current_action, trajectory, intent, meta_data, feedback
-            )
-            self.logger.debug("Refined response: %r", refined_response)
-            self.logger.debug("Refined action: %s", str(refined_action))
-            
-            # Score the refined action
-            refined_score = self._score_action_with_reward_model(
-                refined_action, trajectory, intent, meta_data
-            )
-            self.logger.info("Refined action scored: %.3f (prev=%.3f)", refined_score, current_score)
-            
-            if output_response:
-                print(f'Refinement {refinement_count + 1}: {refined_response}', flush=True)
-                print(f'Refined Score: {refined_score}', flush=True)
-            
-            # Only accept refinement if it improves the score by a minimum margin
-            try:
-                instruction_obj = getattr(self.prompt_constructor, "instruction", {})
-                meta_cfg = instruction_obj.get("meta_data", {}) if isinstance(instruction_obj, dict) else {}
-                min_improve = float(meta_cfg.get("min_refine_improvement", 0.5))
-            except Exception:
-                min_improve = 0.5
-            if refined_score >= current_score + min_improve:
-                current_action = refined_action
-                current_score = refined_score
-                refinement_count += 1
+                
+                # Remove score information to get pure feedback
+                feedback = feedback_response.replace(f"Score: {best_score}", "").strip()
+                self.logger.debug("Refinement feedback: %r", feedback)
+                
+                # Refine the action
+                refined_response, refined_action = self._refine_action(
+                    best_action, trajectory, intent, meta_data, feedback
+                )
+                self.logger.debug("Refined response: %r", refined_response)
+                self.logger.debug("Refined action: %s", str(refined_action))
                 
                 if output_response:
-                    print(f'Refinement accepted! New score: {refined_score} (Δ≥{min_improve})', flush=True)
-                self.logger.info("Refinement %d accepted: new_score=%.3f (min_improve=%.2f)", refinement_count, refined_score, min_improve)
-            else:
-                if output_response:
-                    print(f'Refinement rejected. Δ<{min_improve}.', flush=True)
-                self.logger.info("Refinement %d rejected: refined_score=%.3f < current_score+min_improve=%.3f", refinement_count + 1, refined_score, current_score + min_improve)
-                break
+                    print(f'Refinement: {refined_response}', flush=True)
+                
+                # Always accept the refinement
+                best_action = refined_action
+                self.logger.info("Refinement accepted: action refined")
+                
+            except Exception as e:
+                self.logger.warning("Refinement failed: %s", e, exc_info=True)
+                # Keep the original action if refinement fails
         
-        # Strong convergence: patience on lack of improvement across turns
-        # Recompute effective score for the (possibly refined) current action
-        effective_current_score = max(0.0, current_score - penalty)
-        if self._prev_effective_score is None:
-            self._prev_effective_score = effective_current_score
-        else:
-            improvement = effective_current_score - self._prev_effective_score
-            if improvement < self._min_progress_epsilon:
-                self._patience_counter += 1
-            else:
-                self._patience_counter = 0
-            self._prev_effective_score = effective_current_score
-            if self._patience_counter >= self._patience_limit:
-                stop_action = create_stop_action(
-                    f"No progress for {self._patience_counter} turns (Δ<{self._min_progress_epsilon:.2f}); stopping"
-                )
-                stop_action["raw_prediction"] = best_response
-                return stop_action
 
-        return current_action
+
+        return best_action
     
     def reset(self, test_config_file: str) -> None:
         pass
