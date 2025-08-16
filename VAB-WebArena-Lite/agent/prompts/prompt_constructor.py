@@ -190,12 +190,23 @@ class DirectPromptConstructor(PromptConstructor):
         url = page.url
         previous_action_str = meta_data["action_history"][-1]
 
+        # Extract discovery context from intent if present
+        discovery_context = ""
+        if "\n\nPrevious Discoveries:" in intent:
+            # Split intent to separate the original intent from discoveries
+            parts = intent.split("\n\nPrevious Discoveries:")
+            original_intent = parts[0]
+            discovery_context = "\n\nPrevious Discoveries:" + parts[1]
+        else:
+            original_intent = intent
+
         # input x
         current = template.format(
-            objective=intent,
+            objective=original_intent,
             url=self.map_url_to_real(url),
             observation=obs,
             previous_action=previous_action_str,
+            discovery_context=discovery_context,
         )
 
         # make sure all keywords are replaced
@@ -251,11 +262,23 @@ class CoTPromptConstructor(PromptConstructor):
         page = state_info["info"]["page"]
         url = page.url
         previous_action_str = meta_data["action_history"][-1]
+        
+        # Extract discovery context from intent if present
+        discovery_context = ""
+        if "\n\nPrevious Discoveries:" in intent:
+            # Split intent to separate the original intent from discoveries
+            parts = intent.split("\n\nPrevious Discoveries:")
+            original_intent = parts[0]
+            discovery_context = "\n\nPrevious Discoveries:" + parts[1]
+        else:
+            original_intent = intent
+        
         current = template.format(
-            objective=intent,
+            objective=original_intent,
             url=self.map_url_to_real(url),
             observation=obs,
             previous_action=previous_action_str,
+            discovery_context=discovery_context,
         )
 
         assert all([f"{{k}}" not in current for k in keywords])

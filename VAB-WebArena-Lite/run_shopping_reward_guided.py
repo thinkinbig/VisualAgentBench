@@ -337,9 +337,19 @@ def main() -> None:
         while step_idx < cfg.max_steps:
             # Generate next action
             try:
+                # Update meta_data with previous discoveries for context
+                if "discoveries" in meta_data and meta_data["discoveries"]:
+                    discovery_context = "\n\nPrevious Discoveries:\n" + "\n".join([
+                        f"- {discovery}" for discovery in meta_data["discoveries"]
+                    ])
+                    # Append to intent for context
+                    enhanced_intent = intent + discovery_context
+                else:
+                    enhanced_intent = intent
+                
                 action = agent.next_action(
                     trajectory=trajectory,
-                    intent=intent,
+                    intent=enhanced_intent,
                     meta_data=meta_data,
                     images=None,
                     output_response=cfg.output_response,
@@ -350,6 +360,23 @@ def main() -> None:
 
             logger.info(f"Generated action: {action}")
             trajectory.append(action)
+
+            # Handle send_msg actions - store discoveries in metadata
+            if action.get("action_type") == ActionTypes.SEND_MESSAGE:
+                message = action.get("answer", "")
+                logger.info(f"=== SEND_MSG DISCOVERY ===\n{message}\n")
+                if cfg.output_response:
+                    print(f"\n=== New Discovery ===\n{message}\n")
+                
+                # Store discovery in metadata for future context
+                if "discoveries" not in meta_data:
+                    meta_data["discoveries"] = []
+                meta_data["discoveries"].append(message)
+                
+                # Also store step-specific discovery
+                if "step_discoveries" not in meta_data:
+                    meta_data["step_discoveries"] = {}
+                meta_data["step_discoveries"][step_idx] = message
 
             # Render-friendly action string for history
             try:

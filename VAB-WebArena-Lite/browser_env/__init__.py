@@ -26,7 +26,7 @@ from .actions import (
     create_playwright_action,
     create_random_action,
     create_scroll_action,
-    create_select_option_action,
+
     create_stop_action,
     create_type_action,
     is_equivalent,
@@ -74,7 +74,7 @@ __all__ = [
     "create_click_action",
     "create_type_action",
     "create_hover_action",
-    "create_select_option_action",
+
     "create_stop_action",
     "ActionParsingError",
     "Trajectory",

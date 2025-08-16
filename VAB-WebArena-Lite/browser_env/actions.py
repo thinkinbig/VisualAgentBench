@@ -289,8 +289,6 @@ def action2create_function(action: Action) -> str:
         # high-level actions, only support locators from playwright
         case ActionTypes.CHECK:
             return f"create_check_action(pw_code={repr(action['pw_code'])})"
-        case ActionTypes.SELECT_OPTION:
-            return f"create_select_option_action(pw_code={repr(action['pw_code'])})"
         case ActionTypes.STOP:
             return f'create_stop_action({repr(action["answer"])})'
 
@@ -325,7 +323,6 @@ class ActionTypes(IntEnum):
 
     # high-leval actions that playwright support
     CHECK = 15
-    SELECT_OPTION = 16
 
     STOP = 17
     CLEAR = 18
@@ -383,7 +380,7 @@ def is_equivalent(a: Action, b: Action) -> bool:
             return a["url"] == b["url"]
         case ActionTypes.PAGE_CLOSE:
             return True
-        case ActionTypes.CHECK | ActionTypes.SELECT_OPTION:
+        case ActionTypes.CHECK:
             return a["pw_code"] == b["pw_code"]
         case ActionTypes.STOP:
             return a["answer"] == b["answer"]
@@ -867,18 +864,7 @@ def create_check_action(pw_code: str) -> Action:
     return action
 
 
-@beartype
-def create_select_option_action(
-    pw_code: str,
-) -> Action:
-    action = create_none_action()
-    action.update(
-        {
-            "action_type": ActionTypes.SELECT_OPTION,
-            "pw_code": pw_code,
-        }
-    )
-    return action
+
 
 
 @beartype
@@ -1260,28 +1246,7 @@ async def aexecute_playwright_type(
     await locator.type(*pw_action_args, **pw_action_kwargs)
 
 
-@beartype
-def execute_playwright_select_option(
-    locator_code: list[ParsedPlaywrightCode],
-    page: Page,
-    pw_action_args: list[str] = [],
-    pw_action_kwargs: dict[str, Any] = {},
-) -> None:
-    locator = locate(locator_code, page)
-    # perform the action
-    locator.select_option(*pw_action_args, **pw_action_kwargs)
 
-
-@beartype
-async def aexecute_playwright_select_option(
-    locator_code: list[ParsedPlaywrightCode],
-    page: APage,
-    pw_action_args: list[str] = [],
-    pw_action_kwargs: dict[str, Any] = {},
-) -> None:
-    locator = await alocate(locator_code, page)
-    # perform the action
-    await locator.select_option(*pw_action_args, **pw_action_kwargs)
 
 
 @beartype
@@ -1516,15 +1481,7 @@ def execute_action(
             # You could also log this to a file or send it to a logging system
             pass
 
-        case ActionTypes.SELECT_OPTION:
-            if action["pw_code"]:
-                parsed_code = parse_playwright_code(action["pw_code"])
-                locator_code = parsed_code[:-1]
-                execute_playwright_select_option(locator_code, page)
-            else:
-                raise NotImplementedError(
-                    "No proper locator found for select option action"
-                )
+
         case ActionTypes.CHECK:
             if action["pw_code"]:
                 parsed_code = parse_playwright_code(action["pw_code"])
@@ -1661,15 +1618,7 @@ async def aexecute_action(
             else:
                 page = await browser_ctx.new_page()
 
-        case ActionTypes.SELECT_OPTION:
-            if action["pw_code"]:
-                parsed_code = parse_playwright_code(action["pw_code"])
-                locator_code = parsed_code[:-1]
-                await aexecute_playwright_select_option(locator_code, page)
-            else:
-                raise NotImplementedError(
-                    "No proper locator found for select option action"
-                )
+
         case ActionTypes.CHECK:
             if action["pw_code"]:
                 parsed_code = parse_playwright_code(action["pw_code"])
@@ -1788,8 +1737,7 @@ def create_playwright_action(playwright_code: str) -> Action:
                 )
             text = match.group(1)
             return create_type_action(text=text, pw_code=playwright_code)
-        case "select_option":
-            return create_select_option_action(pw_code=playwright_code)
+
         case "check":
             return create_check_action(pw_code=playwright_code)
         case "goto":
@@ -1940,23 +1888,7 @@ def create_id_based_action(action_str: str) -> Action:
             return create_page_focus_action(page_number)
         case "close_tab":
             return create_page_close_action()
-        case "select_option":
-            # select_option [element_id] [option_value]
-            match = re.search(r"select_option ?\[(\d+)\] ?\[(.+)\]", action_str)
-            if match:
-                element_id = match.group(1)
-                option_value = match.group(2)
-                # Create a Playwright-style select_option action using element_id
-                pw_code = f'page.locator("[data-backend-node-id="{element_id}"]").select_option("{option_value}")'
-                return create_select_option_action(pw_code=pw_code)
-            # Fallback: select_option [element_name] [option_value]
-            match_name = re.search(r"select_option ?\[(.+?)\] ?\[(.+)\]", action_str)
-            if match_name:
-                element_name = match_name.group(1)
-                option_value = match_name.group(2)
-                pw_code = f'page.get_by_role("combobox", name="{element_name}").select_option("{option_value}")'
-                return create_select_option_action(pw_code=pw_code)
-            raise ActionParsingError(f"Invalid select_option action {action_str}")
+
         case "stop":  # stop answer
             match = re.search(r"stop ?\[(.+)\]", action_str)
             if not match:  # some tasks don't require an answer
