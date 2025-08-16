@@ -78,8 +78,8 @@ class RunConfig(BaseModel):
     instruction_path: str
     test_config_file: str
     # Real env options (kept as runtime controls)
-    real_env: bool = False
-    render: bool = False
+    real_env: bool = True
+    render: bool = True
     observation_type: Literal[
         "accessibility_tree",
         "accessibility_tree_with_captioner",
@@ -142,7 +142,8 @@ def config() -> argparse.Namespace:
     parser.add_argument(
         "--real_env",
         action="store_true",
-        help="Run against real browser env instead of offline mock"
+        default=True,
+        help="Run against real browser env instead of offline mock (default: True)"
     )
     parser.add_argument(
         "--render",
@@ -304,104 +305,9 @@ def main() -> None:
     except Exception:
         logger.info("Agent initialized")
     
-    if not cfg.real_env:
-        # Smart offline mock mode with dynamic page state generation
-        logger.info("Running in smart mock mode - agent decides next steps dynamically")
-        
-        # Initial page state
-        current_page_state = {
-            "url": "http://localhost:7770",
-            "text": "Welcome to the shopping website. You can see a navigation menu with categories including 'Exercise & Fitness', 'Electronics', 'Clothing'. The Exercise & Fitness category is visible in the main navigation menu.",
-            "available_elements": ["exercise_fitness_category", "electronics_category", "clothing_category"]
-        }
-        
-        trajectory = [
-            {
-                "observation": {
-                    "text": current_page_state["text"],
-                    "image": None
-                },
-                "action": None,
-                "info": {
-                    "page": type('Page', (), {'url': current_page_state["url"]})()
-                }
-            }
-        ]
-        meta_data["action_history"] = ["No previous action"]
-        
-        # Dynamic multi-step execution
-        max_steps = 10  # Prevent infinite loops
-        step = 0
-        
-        try:
-            while step < max_steps:
-                step += 1
-                logger.info(f"=== Step {step}: Current page state ===")
-                logger.info(f"URL: {current_page_state['url']}")
-                logger.info(f"Available elements: {current_page_state['available_elements']}")
-                
-                # Generate next action - pass current page state in trajectory
-                action = agent.next_action(
-                    trajectory=trajectory,
-                    intent=intent,
-                    meta_data=meta_data,
-                    images=None,
-                    output_response=cfg.output_response
-                )
-                logger.info(f"Step {step} - Generated action: {action}")
-                
-                # Add action to trajectory
-                trajectory.append(action)
-                
-                # Check if agent wants to stop
-                if action.get("action_type") == ActionTypes.STOP:
-                    logger.info("Agent decided to stop - task completed!")
-                    break
-                
-                # Add new page state to trajectory
-                trajectory.append({
-                    "observation": {
-                        "text": current_page_state["text"],
-                        "image": None
-                    },
-                    "action": None,
-                    "info": {
-                        "page": type('Page', (), {'url': current_page_state["url"]})()
-                    }
-                })
-                
-                # Update action history
-                action_desc = f"Step {step}: {action.get('raw_prediction', str(action))}"
-                meta_data["action_history"].append(action_desc)
-                
-                # Check if we have the answer
-                if "send_msg" in str(action.get('raw_prediction', '')):
-                    logger.info("Agent used send_msg - task completed successfully!")
-                    break
-                    
-        except Exception as e:
-            logger.error(f"Error in smart mock mode: {e}")
-            print(f"Error: {e}")
-            
-        if cfg.output_response:
-            print(f"\n=== Smart Mock Mode Test Results ===")
-            print(f"Task: {task_name}")
-            print(f"Intent: {intent}")
-            print(f"Total Steps: {step}")
-            print(f"Final Action: {action}")
-            print(f"Raw Prediction: {action.get('raw_prediction', 'N/A')}")
-            
-            # Check if send_msg was used
-            if "send_msg" in str(action.get('raw_prediction', '')):
-                print(f"✅ SUCCESS: Agent used send_msg to provide the answer!")
-            else:
-                print(f"❌ FAILED: Agent did not use send_msg.")
-                
-        logger.info("Smart mock mode test completed")
-        return
-
-
-
+    # Always use real environment mode
+    logger.info("Running in real environment mode - using actual browser")
+    
     # Real env mode
     env = ScriptBrowserEnv(
         headless=not cfg.render,
@@ -494,6 +400,8 @@ def main() -> None:
             env.close()
         except Exception:
             pass
+
+
 
 if __name__ == "__main__":
     main()

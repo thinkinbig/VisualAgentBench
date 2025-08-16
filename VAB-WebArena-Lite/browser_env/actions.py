@@ -155,6 +155,8 @@ def action2str(
                 action_str = f"clear [{element_id}] where [{element_id}] is {semantic_element}"
             case ActionTypes.STOP:
                 action_str = f"stop [{action['answer']}]"
+            case ActionTypes.SEND_MESSAGE:
+                action_str = f"send_msg(\"{action['answer']}\")"
             case ActionTypes.NONE:
                 action_str = "none"
             case _:
@@ -194,6 +196,8 @@ def action2str(
                 action_str = f"page_focus [{action['page_number']}]"
             case ActionTypes.STOP:
                 action_str = f"stop [{action['answer']}]"
+            case ActionTypes.SEND_MESSAGE:
+                action_str = f"send_msg(\"{action['answer']}\")"
             case ActionTypes.NONE:
                 action_str = "none"
             case _:
@@ -1505,6 +1509,13 @@ def execute_action(
             else:
                 page = browser_ctx.new_page()
 
+        case ActionTypes.SEND_MESSAGE:
+            # Handle send_msg action - just log the message and continue
+            message = action.get("answer", "")
+            print(f"\n=== Intermediate Message ===\n{message}\n")
+            # You could also log this to a file or send it to a logging system
+            pass
+
         case ActionTypes.SELECT_OPTION:
             if action["pw_code"]:
                 parsed_code = parse_playwright_code(action["pw_code"])
@@ -1929,6 +1940,23 @@ def create_id_based_action(action_str: str) -> Action:
             return create_page_focus_action(page_number)
         case "close_tab":
             return create_page_close_action()
+        case "select_option":
+            # select_option [element_id] [option_value]
+            match = re.search(r"select_option ?\[(\d+)\] ?\[(.+)\]", action_str)
+            if match:
+                element_id = match.group(1)
+                option_value = match.group(2)
+                # Create a Playwright-style select_option action using element_id
+                pw_code = f'page.locator("[data-backend-node-id="{element_id}"]").select_option("{option_value}")'
+                return create_select_option_action(pw_code=pw_code)
+            # Fallback: select_option [element_name] [option_value]
+            match_name = re.search(r"select_option ?\[(.+?)\] ?\[(.+)\]", action_str)
+            if match_name:
+                element_name = match_name.group(1)
+                option_value = match_name.group(2)
+                pw_code = f'page.get_by_role("combobox", name="{element_name}").select_option("{option_value}")'
+                return create_select_option_action(pw_code=pw_code)
+            raise ActionParsingError(f"Invalid select_option action {action_str}")
         case "stop":  # stop answer
             match = re.search(r"stop ?\[(.+)\]", action_str)
             if not match:  # some tasks don't require an answer

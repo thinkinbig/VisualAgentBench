@@ -329,7 +329,7 @@ def construct_agent(args: argparse.Namespace, captioning_fn=None) -> Agent:
         eff_num_samples = _prefer_instruction_root(getattr(args, "num_samples", 20), "num_samples", 20)
         eff_temperature = _prefer_instruction_root(getattr(args, "temperature", 1.0), "temperature", 1.0)
         eff_top_p = _prefer_instruction_root(getattr(args, "top_p", 0.9), "top_p", 0.9)
-        eff_max_refinements = _prefer_instruction_root(getattr(args, "max_refinements", 2), "max_refinements", 2)
+
         agent = RewardGuidedAgent(
             action_set_tag=args.action_set_tag,
             policy_lm_config=llm_config,
@@ -340,7 +340,7 @@ def construct_agent(args: argparse.Namespace, captioning_fn=None) -> Agent:
             num_samples=eff_num_samples,
             temperature=eff_temperature,
             top_p=eff_top_p,
-            max_refinements=eff_max_refinements,
+
         )
     else:
         raise NotImplementedError(
@@ -363,7 +363,7 @@ class RewardGuidedAgent(Agent):
         num_samples: int = 10,
         temperature: float = 1.0,
         top_p: float = 0.9,
-        max_refinements: int = 1
+
     ) -> None:
         super().__init__()
         self.action_set_tag = action_set_tag
@@ -375,7 +375,7 @@ class RewardGuidedAgent(Agent):
         self.num_samples = num_samples
         self.temperature = temperature
         self.top_p = top_p
-        self.max_refinements = max_refinements
+
         self.logger = logging.getLogger("reward_guided_logger")
         
         # Check if the model is multimodal
@@ -683,86 +683,6 @@ class RewardGuidedAgent(Agent):
         )
         return prompt
     
-    def _refine_action(
-        self, 
-        action: Action, 
-        trajectory: Trajectory, 
-        intent: str, 
-        meta_data: dict[str, Any],
-        refinement_feedback: str
-    ) -> Tuple[str, Action]:
-        """Refine an action based on feedback from the reward model"""
-        try:
-            # Create refinement prompt (use the provided feedback string)
-            instruction_obj = getattr(self.prompt_constructor, "instruction", {})
-            meta_cfg = instruction_obj.get("meta_data", {}) if isinstance(instruction_obj, dict) else {}
-            context_template = meta_cfg.get("refinement_context_template") if isinstance(meta_cfg, dict) else None
-
-            if isinstance(context_template, str) and context_template:
-                try:
-                    refinement_context = context_template.format(
-                        objective=intent,
-                        current_state=trajectory[-1]["observation"].get("text", "No text observation"),
-                        original_action=action.get("raw_prediction", str(action)),
-                        feedback=refinement_feedback,
-                    )
-                except Exception:
-                    refinement_context = None
-            else:
-                refinement_context = None
-
-            if not refinement_context:
-                refinement_context = (
-                    "You are a web agent that needs to refine an action based on feedback.\n\n"
-                    f"Goal: {intent}\n\n"
-                    f"Current State: {trajectory[-1]['observation'].get('text', 'No text observation')}\n\n"
-                    f"Original Action: {action.get('raw_prediction', str(action))}\n\n"
-                    f"Feedback: {refinement_feedback}\n\n"
-                    "Please provide a refined action that addresses the feedback and better achieves the goal."
-                )
-            
-            if self.multimodal_inputs:
-                page_screenshot_arr = trajectory[-1]["observation"]["image"]
-                page_screenshot_img = Image.fromarray(page_screenshot_arr)
-                prompt = self.prompt_constructor.construct(
-                    trajectory, intent, page_screenshot_img, None, meta_data
-                )
-            else:
-                prompt = self.prompt_constructor.construct(
-                    trajectory, intent, meta_data
-                )
-            
-            # Add refinement context
-            prompt += f"\n\nRefinement Context:\n{refinement_context}"
-            
-            if self.planner_ip is not None and self.planner_ip != "":
-                response = call_llm(self.policy_lm_config, prompt, 'EMPTY', self.planner_ip)
-            else:
-                response = call_llm(self.policy_lm_config, prompt)
-            
-            force_prefix = self.prompt_constructor.instruction["meta_data"].get("force_prefix", "")
-            response = f"{force_prefix}{response}"
-            
-            # Parse refined action
-            parsed_response = self.prompt_constructor.extract_action(response)
-            if self.action_set_tag == "id_accessibility_tree":
-                refined_action = create_id_based_action(parsed_response)
-            elif self.action_set_tag == "playwright":
-                refined_action = create_playwright_action(parsed_response)
-            elif self.action_set_tag == "som":
-                refined_action = create_id_based_action(parsed_response)
-            elif self.action_set_tag == 'webrl_id':
-                refined_action = create_webrl_id_based_action(parsed_response)
-            else:
-                raise ValueError(f"Unknown action type {self.action_set_tag}")
-            
-            refined_action["raw_prediction"] = response
-            return response, refined_action
-            
-        except Exception as e:
-            print(f"Error refining action: {e}")
-            return action.get("raw_prediction", ""), action
-    
     @beartype
     def next_action(
         self, 
@@ -836,44 +756,6 @@ class RewardGuidedAgent(Agent):
             action = create_stop_action(f"Low confidence (score={best_score:.2f})")
             action["raw_prediction"] = best_response
             return action
-
-
-
-        # Step 5: Simple refinement (always accept the first refinement)
-        if self.max_refinements > 0:
-            try:
-                # Get feedback from reward model
-                feedback_prompt = self._create_reward_prompt(best_action, trajectory, intent, meta_data)
-                api_input_fb = build_api_input_for_text(
-                    self.reward_lm_config,
-                    "You are a reward model for web agents. Read the user's content and output critique and a single action in the same format, wrapped in code fences.",
-                    feedback_prompt,
-                )
-                feedback_response = call_llm(self.reward_lm_config, api_input_fb)
-                
-                # Remove score information to get pure feedback
-                feedback = feedback_response.replace(f"Score: {best_score}", "").strip()
-                self.logger.debug("Refinement feedback: %r", feedback)
-                
-                # Refine the action
-                refined_response, refined_action = self._refine_action(
-                    best_action, trajectory, intent, meta_data, feedback
-                )
-                self.logger.debug("Refined response: %r", refined_response)
-                self.logger.debug("Refined action: %s", str(refined_action))
-                
-                if output_response:
-                    print(f'Refinement: {refined_response}', flush=True)
-                
-                # Always accept the refinement
-                best_action = refined_action
-                self.logger.info("Refinement accepted: action refined")
-                
-            except Exception as e:
-                self.logger.warning("Refinement failed: %s", e, exc_info=True)
-                # Keep the original action if refinement fails
-        
-
 
         return best_action
     

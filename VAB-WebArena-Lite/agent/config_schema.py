@@ -47,6 +47,7 @@ class MetaDataConfig(BaseModel):
     reward_prompt_template: Optional[str] = None
     refinement_context_template: Optional[str] = None
     reward_score_regex: Optional[str] = None
+    reject_threshold: Optional[float] = Field(default=2.0, ge=0.0)
 
 
 class InstructionConfig(BaseModel):
