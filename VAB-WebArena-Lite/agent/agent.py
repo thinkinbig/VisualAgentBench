@@ -386,13 +386,7 @@ class RewardGuidedAgent(Agent):
         else:
             self.multimodal_inputs = False
 
-        # Simple early stopping controls
-        try:
-            instruction_obj = getattr(prompt_constructor, "instruction", {})
-            meta_cfg = instruction_obj.get("meta_data", {}) if isinstance(instruction_obj, dict) else {}
-            self._reject_threshold: float = float(meta_cfg.get("reject_threshold", 2.0))
-        except Exception:
-            self._reject_threshold = 2.0
+
     
     def set_action_set_tag(self, tag: str) -> None:
         self.action_set_tag = tag
@@ -747,16 +741,6 @@ class RewardGuidedAgent(Agent):
             print(f'Agent: {best_response}', flush=True)
             print(f'Reward Score: {best_score}', flush=True)
         
-        # Early rejection for very low scores
-        if best_score < self._reject_threshold:
-            self.logger.info(
-                "Best score %.3f below reject_threshold %.3f, stopping",
-                best_score, self._reject_threshold,
-            )
-            action = create_stop_action(f"Low confidence (score={best_score:.2f})")
-            action["raw_prediction"] = best_response
-            return action
-
         return best_action
     
     def reset(self, test_config_file: str) -> None:

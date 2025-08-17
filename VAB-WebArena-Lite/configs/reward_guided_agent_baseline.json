@@ -42,9 +42,7 @@
     "action_splitter": "```",
     "force_prefix": "The next action I will perform is:",
     "reward_prompt_template": "You are an expert evaluator of web agent actions. Your task is to assess how helpful the proposed next action is in making progress toward the user's goal, based on the current state of the webpage and the action history.\n\nUser's Goal: {objective}\n\nAction History:\n{action_history}\n\nCurrent Webpage State:\n{current_state}\n\nProposed Action: {proposed_action}\n\nEvaluate the helpfulness of this proposed action using the following scale:\n**Scoring Criteria (1 to 5):**\n- **5 (Very Helpful)**: The action directly and effectively moves toward fulfilling a key part of the goal.\n- **4 (Helpful)**: The action contributes meaningfully to progress, though it may require follow-up actions.\n- **3 (Somewhat Helpful)**: The action is partially relevant or a preparatory step, but doesn't make immediate progress.\n- **2 (Slightly Helpful)**: The action is weakly related to the goal or might only indirectly help.\n- **1 (Not Helpful)**: The action is unrelated, redundant, or distracts from the goal.\n\nPlease respond with only: Score: X\nWhere X is an integer from 1 to 5.",
-    "refinement_context_template": "You are refining a web action based on feedback.\n\nGoal: {objective}\n\nCurrent State: {current_state}\n\nOriginal Action: {original_action}\n\nFeedback: {feedback}\n\nConstraints:\n- Stay on the current website unless explicitly told otherwise.\n- Prefer element_id over names.\n- Do not repeat previously low-scoring actions.\n- Return exactly one improved action in the same format, wrapped in code fences, and no extra text after.",
-    "reward_score_regex": "Score:\\s*(\\d+)",
-    "reject_threshold": 2.0
+    "reward_score_regex": "Score:\\s*(\\d+)"
   },
   
   "num_samples": 10,
