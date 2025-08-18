@@ -259,6 +259,14 @@ def construct_agent(args: argparse.Namespace, captioning_fn=None) -> Agent:
                 args.action_set_tag = instruction_obj["action_set_tag"]
         except Exception:
             pass
+    # Ensure we have a default action_set_tag even if instruction JSON is invalid or missing
+    if not hasattr(args, "action_set_tag") or args.action_set_tag is None:
+        try:
+            with open(args.instruction_path) as _f:
+                _raw = json.load(_f)
+                args.action_set_tag = _raw.get("action_set_tag", "id_accessibility_tree")
+        except Exception:
+            args.action_set_tag = "id_accessibility_tree"
     
     # Reward model config will be constructed later for reward_guided agent using instruction JSON
 
@@ -281,467 +289,50 @@ def construct_agent(args: argparse.Namespace, captioning_fn=None) -> Agent:
             planner_ip=args.planner_ip
         )
     elif args.agent_type == "reward_guided":
+        # Load instruction data to get configuration
         with open(args.instruction_path) as f:
-            constructor_type = json.load(f)["meta_data"]["prompt_constructor"]
-        # Build tokenizer from the computed policy llm_config
-        tokenizer = Tokenizer(llm_config.provider, llm_config.model)
-        prompt_constructor = eval(constructor_type)(
-            args.instruction_path, lm_config=llm_config, tokenizer=tokenizer
-        )
-        # Build reward model config from instruction JSON (new format only) with CLI fallbacks
-        instruction_obj = getattr(prompt_constructor, "instruction", {})
-        reward_model_section = instruction_obj.get("reward_model") if isinstance(instruction_obj, dict) else None
-
-        reward_provider = reward_model_section.get("provider") or getattr(args, "reward_provider", None) or args.provider
-        reward_model = reward_model_section.get("model") or getattr(args, "reward_model", None) or args.model
-        reward_mode = reward_model_section.get("mode") or getattr(args, "mode", None)
-        reward_model_endpoint = reward_model_section.get("model_endpoint") or getattr(args, "reward_model_endpoint", None) or getattr(args, "model_endpoint", None)
+            instruction_data = json.load(f)
+        
+        # Build reward model config using CLI args (or mirror policy if not provided)
+        reward_provider = getattr(args, "reward_provider", None) or args.provider
+        reward_model = getattr(args, "reward_model", None) or args.model
+        reward_mode = getattr(args, "mode", None) or args.mode
+        reward_model_endpoint = getattr(args, "reward_model_endpoint", None) or getattr(args, "model_endpoint", None)
 
         reward_args = SimpleNamespace(
             provider=reward_provider,
             model=reward_model,
-            mode=reward_mode or args.mode,
-            temperature=args.temperature,
+            mode=reward_mode,
+            temperature=0.0 if getattr(args, "temperature", None) is None else args.temperature,
             top_p=args.top_p,
             context_length=args.context_length,
-            max_tokens=args.max_tokens,
+            max_tokens=100 if getattr(args, "max_tokens", None) is None else args.max_tokens,
             stop_token=args.stop_token,
             max_obs_length=args.max_obs_length,
             max_retry=args.max_retry,
             model_endpoint=reward_model_endpoint,
         )
-        # Map optional per-model gen overrides into args before constructing LMConfig
-        if isinstance(reward_model_section, dict):
-            gen_overrides = reward_model_section.get("gen") or {}
-            if isinstance(gen_overrides, dict):
-                for k, v in gen_overrides.items():
-                    if v is not None:
-                        setattr(reward_args, k, v)
         reward_llm_config = lm_config.construct_llm_config(reward_args)  # type: ignore[arg-type]
-        # Read optional defaults from instruction file (new format only: root-level fields)
-        # Use instruction values when present unless CLI explicitly overrides (CLI wins).
-        def _prefer_instruction_root(arg_value, key, builtin_default):
-            inst_value = instruction_obj.get(key) if isinstance(instruction_obj, dict) else None
-            if inst_value is not None and arg_value == builtin_default:
-                return inst_value
-            return arg_value if arg_value is not None else (inst_value if inst_value is not None else builtin_default)
 
-        eff_num_samples = _prefer_instruction_root(getattr(args, "num_samples", 20), "num_samples", 20)
-        eff_temperature = _prefer_instruction_root(getattr(args, "temperature", 1.0), "temperature", 1.0)
-        eff_top_p = _prefer_instruction_root(getattr(args, "top_p", 0.9), "top_p", 0.9)
+        # Read parameters from instruction JSON file
+        eff_num_samples = instruction_data.get("num_samples", 20)
+        eff_temperature = instruction_data.get("temperature", 1.0)
+        eff_top_p = instruction_data.get("top_p", 0.9)
 
+        # Import RewardGuidedAgent (self-contained prompt loading)
+        from .reward_guided_agent import RewardGuidedAgent
+        
         agent = RewardGuidedAgent(
             action_set_tag=args.action_set_tag,
             policy_lm_config=llm_config,
             reward_lm_config=reward_llm_config,
-            prompt_constructor=prompt_constructor,
             captioning_fn=captioning_fn,
-            planner_ip=args.planner_ip,
             num_samples=eff_num_samples,
             temperature=eff_temperature,
             top_p=eff_top_p,
-
         )
     else:
         raise NotImplementedError(
             f"agent type {args.agent_type} not implemented"
         )
     return agent
-
-
-class RewardGuidedAgent(Agent):
-    """Reward-guided Trajectory Search Agent as described in the paper"""
-    
-    def __init__(
-        self,
-        action_set_tag: str,
-        policy_lm_config: lm_config.LMConfig,
-        reward_lm_config: lm_config.LMConfig,
-        prompt_constructor: PromptConstructor,
-        captioning_fn=None,
-        planner_ip=None,
-        num_samples: int = 10,
-        temperature: float = 1.0,
-        top_p: float = 0.9,
-
-    ) -> None:
-        super().__init__()
-        self.action_set_tag = action_set_tag
-        self.policy_lm_config = policy_lm_config
-        self.reward_lm_config = reward_lm_config
-        self.prompt_constructor = prompt_constructor
-        self.captioning_fn = captioning_fn
-        self.planner_ip = planner_ip
-        self.num_samples = num_samples
-        self.temperature = temperature
-        self.top_p = top_p
-
-        self.logger = logging.getLogger("reward_guided_logger")
-        
-        # Check if the model is multimodal
-        if ("gemini" in policy_lm_config.model or 
-            "gpt-4" in policy_lm_config.model and "vision" in policy_lm_config.model or 
-            policy_lm_config.provider in ["api", "finetune"]) and type(prompt_constructor) == MultimodalCoTPromptConstructor:
-            self.multimodal_inputs = True
-        else:
-            self.multimodal_inputs = False
-
-
-    
-    def set_action_set_tag(self, tag: str) -> None:
-        self.action_set_tag = tag
-    
-    def _generate_action_candidates(
-        self, 
-        trajectory: Trajectory, 
-        intent: str, 
-        meta_data: dict[str, Any], 
-        images: Optional[List[Image.Image]] = None
-    ) -> List[Tuple[str, Action]]:
-        """Generate action candidates using nucleus sampling"""
-        candidates = []
-        self.logger.info("Generating action candidates (num_samples=%d)", self.num_samples)
-        
-        # Create page screenshot image for multimodal models
-        if self.multimodal_inputs:
-            page_screenshot_arr = trajectory[-1]["observation"]["image"]
-            page_screenshot_img = Image.fromarray(page_screenshot_arr)
-        
-        # Caption the input image, if provided
-        if images is not None and len(images) > 0:
-            if self.captioning_fn is not None:
-                image_input_caption = ""
-                for image_i, image in enumerate(images):
-                    if image_i == 0:
-                        image_input_caption += f'Input image {image_i+1}: "{self.captioning_fn([image])[0]}"'
-                    else:
-                        image_input_caption += f'input image {image_i+1}: "{self.captioning_fn([image])[0]}"'
-                    if len(images) > 1:
-                        image_input_caption += ", "
-                intent = f"{image_input_caption}\nIntent: {intent}"
-            elif not self.multimodal_inputs:
-                print("WARNING: Input image provided but no image captioner available.")
-        
-        # Generate multiple samples with nucleus sampling
-        unique_action_keys: set[str] = set()
-        action_key_counts: Dict[str, int] = {}
-
-        for sample_idx in range(self.num_samples):
-            try:
-                if self.multimodal_inputs:
-                    prompt = self.prompt_constructor.construct(
-                        trajectory, intent, page_screenshot_img, images, meta_data
-                    )
-                else:
-                    prompt = self.prompt_constructor.construct(
-                        trajectory, intent, meta_data
-                    )
-                
-                # Create config with sampling parameters
-                sample_config = copy.deepcopy(self.policy_lm_config)
-                sample_config.gen_config["temperature"] = self.temperature
-                sample_config.gen_config["top_p"] = self.top_p
-                
-                if self.planner_ip is not None and self.planner_ip != "":
-                    response = call_llm(sample_config, prompt, 'EMPTY', self.planner_ip)
-                else:
-                    response = call_llm(sample_config, prompt)
-                
-                force_prefix = self.prompt_constructor.instruction["meta_data"].get("force_prefix", "")
-                response = f"{force_prefix}{response}"
-                self.logger.debug("[Sample %d] Raw LLM response: %r", sample_idx, response)
-                
-                # Parse action (with fallbacks to be robust to formatting)
-                parsed_response = self.prompt_constructor.extract_action(response)
-                self.logger.debug("[Sample %d] Extracted action string: %s", sample_idx, parsed_response)
-                try:
-                    if self.action_set_tag == "id_accessibility_tree":
-                        action = create_id_based_action(parsed_response)
-                    elif self.action_set_tag == "playwright":
-                        action = create_playwright_action(parsed_response)
-                    elif self.action_set_tag == "som":
-                        action = create_id_based_action(parsed_response)
-                    elif self.action_set_tag == 'webrl_id':
-                        # Primary: parse WebRL-style
-                        action = create_webrl_id_based_action(parsed_response)
-                    else:
-                        raise ValueError(f"Unknown action type {self.action_set_tag}")
-                except Exception:
-                    # Fallbacks: many prompts still emit id-style like "goto [...]"
-                    try:
-                        action = create_id_based_action(parsed_response)
-                    except Exception:
-                        # As a last resort, try playwright
-                        action = create_playwright_action(parsed_response)
-                
-                action["raw_prediction"] = response
-                candidates.append((response, action))
-                self.logger.debug("[Sample %d] Parsed action OK: %s", sample_idx, str(action))
-                # Early-exit checks
-                action_key = str(action)
-                action_key_counts[action_key] = action_key_counts.get(action_key, 0) + 1
-                unique_action_keys.add(action_key)
-                
-            except Exception as e:
-                self.logger.warning("Error generating sample %d: %s", sample_idx, e, exc_info=True)
-                continue
-        
-        return candidates
-    
-    def _score_action_with_reward_model(
-        self, 
-        action: Action, 
-        trajectory: Trajectory, 
-        intent: str, 
-        meta_data: dict[str, Any]
-    ) -> float:
-        """Score an action using the reward model"""
-        try:
-            # Create reward evaluation prompt
-            reward_prompt = self._create_reward_prompt(action, trajectory, intent, meta_data)
-            self.logger.debug("Reward prompt (text):\n%s", reward_prompt)
-            
-            # Get reward score from reward model (build provider-specific API input)
-            api_input = build_api_input_for_text(
-                self.reward_lm_config,
-                "You are a reward model for web agents. Read the user's content and output only: Score: X.X",
-                reward_prompt,
-            )
-            response = call_llm(self.reward_lm_config, api_input)
-            self.logger.debug("Reward model response: %r", response)
-            
-            # Extract reward score from response (configurable via instruction meta_data)
-            try:
-                # Try to extract numerical score
-                import re
-                instruction_obj = getattr(self.prompt_constructor, "instruction", {})
-                meta_cfg = instruction_obj.get("meta_data", {}) if isinstance(instruction_obj, dict) else {}
-                score_regex = meta_cfg.get("reward_score_regex", r'Score:\s*([\d.]+)')
-                score_match = re.search(score_regex, response)
-                if score_match:
-                    score = float(score_match.group(1))
-                    self.logger.debug("Extracted reward score: %s", score)
-                    return score
-                
-                # Fallback: try to find any number in the response
-                numbers = re.findall(r'[\d.]+', response)
-                if numbers:
-                    score = float(numbers[0])
-                    self.logger.debug("Fallback extracted numeric score: %s", score)
-                    return score
-                
-                # If no score found, return a default score
-                self.logger.debug("No numeric score found, defaulting to 0.0")
-                return 0.0
-                
-            except (ValueError, IndexError):
-                return 0.0
-                
-        except Exception as e:
-            self.logger.warning("Error scoring action with reward model: %s", e, exc_info=True)
-            return 0.0
-
-    def _score_actions_with_reward_model(
-        self,
-        actions: List[Action],
-        trajectory: Trajectory,
-        intent: str,
-        meta_data: dict[str, Any],
-    ) -> List[float]:
-        """Batch score multiple actions in a single reward-model call.
-        Returns list of scores aligned with input actions. Falls back to per-action if parsing fails.
-        """
-        try:
-            # Build batch prompt
-            current_text = trajectory[-1]["observation"].get("text", "No text observation")
-            proposals: List[str] = []
-            for idx, act in enumerate(actions, start=1):
-                raw_pred = act.get("raw_prediction", str(act))
-                if isinstance(raw_pred, str) and "```" in raw_pred:
-                    try:
-                        raw_pred = self.prompt_constructor.extract_action(raw_pred)
-                    except Exception:
-                        raw_pred = raw_pred.replace("```", "").strip()
-                proposals.append(f"{idx}. {raw_pred}")
-
-            user_text = (
-                f"Goal: {intent}\n\n"
-                f"Current State: {current_text}\n\n"
-                "Proposed Actions (each line starts with index.):\n" +
-                "\n".join(proposals) +
-                "\n\nFor each action i, reply on a separate line strictly as: i: Score: X.X"
-            )
-            system_text = (
-                "You are a reward model for web agents. Evaluate each proposed next action independently and output scores only."
-            )
-            api_input = build_api_input_for_text(self.reward_lm_config, system_text, user_text)
-            response = call_llm(self.reward_lm_config, api_input)
-            self.logger.debug("Batch reward model response: %r", response)
-
-            import re
-            pattern = re.compile(r"^(\d+)\s*:\s*Score:\s*([\d.]+)", re.MULTILINE)
-            matches = pattern.findall(response)
-            scores: List[float] = [0.0] * len(actions)
-            for idx_str, score_str in matches:
-                try:
-                    i = int(idx_str)
-                    if 1 <= i <= len(actions):
-                        scores[i - 1] = float(score_str)
-                except Exception:
-                    continue
-
-            # If parsing failed for all, fallback to per-action scoring
-            if all(s == 0.0 for s in scores):
-                return [
-                    self._score_action_with_reward_model(a, trajectory, intent, meta_data)
-                    for a in actions
-                ]
-            return scores
-        except Exception as e:
-            self.logger.warning("Batch reward scoring failed, falling back to single: %s", e, exc_info=True)
-            return [
-                self._score_action_with_reward_model(a, trajectory, intent, meta_data)
-                for a in actions
-            ]
-
-
-    
-    def _create_reward_prompt(
-        self, 
-        action: Action, 
-        trajectory: Trajectory, 
-        intent: str, 
-        meta_data: dict[str, Any]
-    ) -> str:
-        """Create a prompt for the reward model to evaluate an action"""
-        # Prefer a clean action string without code fences
-        raw_pred = action.get("raw_prediction", str(action))
-        proposed_action = raw_pred
-        if isinstance(raw_pred, str) and "```" in raw_pred:
-            try:
-                proposed_action = self.prompt_constructor.extract_action(raw_pred)
-            except Exception:
-                proposed_action = raw_pred.replace("```", "").strip()
-
-        current_text = trajectory[-1]["observation"].get("text", "No text observation")
-        
-        # Build action history from trajectory
-        action_history = []
-        for i in range(1, len(trajectory), 2):  # Skip states, get actions
-            if i < len(trajectory):
-                action_info = trajectory[i]
-                if isinstance(action_info, dict) and "action" in action_info:
-                    action_str = str(action_info["action"])
-                    # Clean up action string for readability
-                    if "raw_prediction" in action_info:
-                        action_str = action_info["raw_prediction"]
-                    action_history.append(f"Step {len(action_history)+1}: {action_str}")
-        
-        action_history_text = "\n".join(action_history) if action_history else "No previous actions"
-
-        # Allow instruction meta_data to override reward prompt template
-        try:
-            instruction_obj = getattr(self.prompt_constructor, "instruction", {})
-            meta_cfg = instruction_obj.get("meta_data", {}) if isinstance(instruction_obj, dict) else {}
-        except Exception:
-            meta_cfg = {}
-        template = meta_cfg.get("reward_prompt_template") if isinstance(meta_cfg, dict) else None
-        if isinstance(template, str) and template:
-            try:
-                return template.format(
-                    objective=intent,
-                    current_state=current_text,
-                    proposed_action=proposed_action,
-                    action_history=action_history_text,
-                )
-            except Exception:
-                pass
-
-        # Default prompt with action history
-        prompt = (
-            "You are a reward model that evaluates web agent actions. Given the current state, action history, and a proposed action, "
-            "predict how good this action is for achieving the goal.\n\n"
-            f"Goal: {intent}\n\n"
-            f"Action History:\n{action_history_text}\n\n"
-            f"Current State: {current_text}\n\n"
-            f"Proposed Action: {proposed_action}\n\n"
-            "Please evaluate this action considering the context of previous actions and provide a score from 0.0 to 10.0, where:\n"
-            "- 0.0: Completely wrong action that will not help achieve the goal\n"
-            "- 5.0: Neutral action that neither helps nor hurts\n"
-            "- 10.0: Perfect action that directly helps achieve the goal\n\n"
-            "Consider:\n"
-            "- Does this action build logically on previous actions?\n"
-            "- Is it a natural next step in the task progression?\n"
-            "- Does it avoid repeating ineffective previous actions?\n\n"
-            "Respond with: Score: X.X"
-        )
-        return prompt
-    
-    @beartype
-    def next_action(
-        self, 
-        trajectory: Trajectory, 
-        intent: str, 
-        meta_data: dict[str, Any], 
-        images: Optional[List[Image.Image]] = None,
-        output_response: bool = False
-    ) -> Action:
-        """Generate next action using reward-guided trajectory search"""
-        
-        # Step 1: Generate action candidates using nucleus sampling
-        candidates = self._generate_action_candidates(trajectory, intent, meta_data, images)
-        self.logger.info("Generated %d candidate actions", len(candidates))
-        
-        if not candidates:
-            # Fallback to default action
-            action = create_none_action()
-            action["raw_prediction"] = "Failed to generate candidates"
-            return action
-        
-        # Step 2: Count action frequencies and select top candidates
-        action_counts = {}
-        for response, action in candidates:
-            action_key = str(action)
-            if action_key in action_counts:
-                action_counts[action_key].append((response, action))
-            else:
-                action_counts[action_key] = [(response, action)]
-        
-        # Sort by frequency and select top candidates
-        sorted_candidates = sorted(action_counts.items(), key=lambda x: len(x[1]), reverse=True)
-        top_candidates = []
-        for action_key, action_list in sorted_candidates[:3]:  # Top 3 most frequent for efficiency
-            # Use the first occurrence of each unique action
-            top_candidates.append(action_list[0])
-        self.logger.debug("Top %d unique candidates selected for scoring", len(top_candidates))
-        
-        # Step 3: Score candidates using reward model (batch for speed)
-        scored_candidates = []
-        try:
-            actions_for_batch = [a for _, a in top_candidates]
-            scores = self._score_actions_with_reward_model(actions_for_batch, trajectory, intent, meta_data)
-            for (response, action), score in zip(top_candidates, scores):
-                scored_candidates.append((score, response, action))
-                self.logger.info("Candidate scored: score=%.3f, action=%s", score, str(action))
-        except Exception:
-            # Fallback: score one by one
-            for response, action in top_candidates:
-                score = self._score_action_with_reward_model(action, trajectory, intent, meta_data)
-                scored_candidates.append((score, response, action))
-                self.logger.info("Candidate scored: score=%.3f, action=%s", score, str(action))
-        
-        # Sort by score (highest first)
-        scored_candidates.sort(key=lambda x: x[0], reverse=True)
-        
-        # Step 4: Select best action
-        best_score, best_response, best_action = scored_candidates[0]
-        self.logger.info("Best action selected: score=%.3f, action=%s", best_score, str(best_action))
-        
-        if output_response:
-            print(f'Agent: {best_response}', flush=True)
-            print(f'Reward Score: {best_score}', flush=True)
-        
-        return best_action
-    
-    def reset(self, test_config_file: str) -> None:
-        pass

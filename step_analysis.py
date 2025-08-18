@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """
 使用DuckDB进行真正的SQL查询分析WebPRM数据集中的task 397
+特别关注thoughts和action的关系，以及chosen列中的决策过程
+显示完整的thoughts内容
 """
 
 import duckdb
@@ -35,18 +37,17 @@ def main():
     for field_name, field_type, null, key, default, extra in schema:
         print(f"   {field_name}: {field_type}")
     
-    # 打印task 397的action history示例
-    print(f"\n2. Task 397的Action History示例:")
-    action_history_sample = con.execute("""
-        SELECT task_id, step_id, action_history
+    # 检查chosen列的结构
+    print(f"\n2. Chosen列的结构分析:")
+    chosen_sample = con.execute("""
+        SELECT chosen, typeof(chosen) as chosen_type
         FROM webprm 
-        WHERE task_id = '397'
         LIMIT 1
     """).fetchall()
     
-    for task_id, step_id, action_history in action_history_sample:
-        print(f"   Task {task_id}, Step {step_id}:")
-        print(f"     Action History: {action_history}")
+    for chosen, chosen_type in chosen_sample:
+        print(f"   Chosen类型: {chosen_type}")
+        print(f"   Chosen内容: {chosen}")
         print()
     
     # 检查task 397是否存在
@@ -71,8 +72,8 @@ def main():
             print(f"   Task {task_id}: {step_count} 个步骤")
         return
     
-    # 核心分析：任务397的Step差异分析
-    print(f"\n3. 任务397的Step差异分析:")
+    # 核心分析：任务397的Thoughts和Action关系分析
+    print(f"\n3. 任务397的Thoughts和Action关系分析:")
     
     # 基础信息
     task_info = con.execute("""
@@ -88,131 +89,150 @@ def main():
     if task_info:
         step_count, intent, website = task_info[0]
         print(f"   任务397: {website} - {step_count} 个步骤")
-        print(f"   目标: {intent[:100] if intent else 'N/A'}...")
+        print(f"   目标: {intent}")
     
-    # 核心差异分析：显示每个step之间的实际变化
-    print(f"\n4. Step之间的实际变化:")
-    step_changes = con.execute("""
-        WITH step_data AS (
-            SELECT 
-                step_id,
-                intent,
-                website_name,
-                start_url,
-                current_url,
-                text_observation,
-                checklist,
-                checklist_target_list,
-                array_length(thought_history) as thought_count,
-                array_length(action_history) as action_count,
-                array_length(rejected) as rejected_count,
-                rejected,
-                LAG(step_id) OVER (ORDER BY CAST(step_id AS INTEGER)) as prev_step_id,
-                LAG(intent) OVER (ORDER BY CAST(step_id AS INTEGER)) as prev_intent,
-                LAG(website_name) OVER (ORDER BY CAST(step_id AS INTEGER)) as prev_website_name,
-                LAG(start_url) OVER (ORDER BY CAST(step_id AS INTEGER)) as prev_start_url,
-                LAG(current_url) OVER (ORDER BY CAST(step_id AS INTEGER)) as prev_current_url,
-                LAG(text_observation) OVER (ORDER BY CAST(step_id AS INTEGER)) as prev_text_observation,
-                LAG(checklist) OVER (ORDER BY CAST(step_id AS INTEGER)) as prev_checklist,
-                LAG(checklist_target_list) OVER (ORDER BY CAST(step_id AS INTEGER)) as prev_checklist_target_list,
-                LAG(array_length(thought_history)) OVER (ORDER BY CAST(step_id AS INTEGER)) as prev_thought_count,
-                LAG(array_length(action_history)) OVER (ORDER BY CAST(step_id AS INTEGER)) as prev_action_count,
-                LAG(array_length(rejected)) OVER (ORDER BY CAST(step_id AS INTEGER)) as prev_rejected_count,
-                LAG(rejected) OVER (ORDER BY CAST(step_id AS INTEGER)) as prev_rejected
-            FROM webprm 
-            WHERE task_id = '397'
-        )
+    # 分析每个step的thoughts和action关系
+    print(f"\n4. 每个Step的完整Thoughts → Action → Chosen决策链:")
+    
+    # 获取每个step的详细信息
+    step_details = con.execute("""
         SELECT 
             step_id,
-            prev_step_id,
-            -- 只显示发生变化的字段
-            CASE 
-                WHEN intent != prev_intent THEN 
-                    '意图: ' || COALESCE(prev_intent, 'N/A') || ' → ' || COALESCE(intent, 'N/A')
-                ELSE NULL
-            END as intent_change,
-            CASE 
-                WHEN website_name != prev_website_name THEN 
-                    '网站: ' || COALESCE(prev_website_name, 'N/A') || ' → ' || COALESCE(website_name, 'N/A')
-                ELSE NULL
-            END as website_change,
-            CASE 
-                WHEN start_url != prev_start_url THEN 
-                    '起始URL: ' || COALESCE(prev_start_url, 'N/A') || ' → ' || COALESCE(start_url, 'N/A')
-                ELSE NULL
-            END as start_url_change,
-            CASE 
-                WHEN current_url != prev_current_url THEN 
-                    '当前URL: ' || COALESCE(prev_current_url, 'N/A') || ' → ' || COALESCE(current_url, 'N/A')
-                ELSE NULL
-            END as current_url_change,
-            CASE 
-                WHEN text_observation != prev_text_observation THEN 
-                    '文本观察: 已变化 (长度: ' || COALESCE(length(prev_text_observation), 0) || ' → ' || COALESCE(length(text_observation), 0) || ')'
-                ELSE NULL
-            END as text_obs_change,
-            -- 添加文本观察的具体内容
-            CASE 
-                WHEN text_observation != prev_text_observation THEN 
-                    '文本内容变化: ' || COALESCE(LEFT(prev_text_observation, 100), 'N/A') || ' → ' || COALESCE(LEFT(text_observation, 100), 'N/A')
-                ELSE NULL
-            END as text_content_change,
-            CASE 
-                WHEN checklist != prev_checklist THEN 
-                    '检查清单: ' || COALESCE(prev_checklist, 'N/A') || ' → ' || COALESCE(checklist, 'N/A')
-                ELSE NULL
-            END as checklist_change,
-            CASE 
-                WHEN checklist_target_list != prev_checklist_target_list THEN 
-                    '检查目标: ' || COALESCE(prev_checklist_target_list::VARCHAR, 'N/A') || ' → ' || COALESCE(checklist_target_list::VARCHAR, 'N/A')
-                ELSE NULL
-            END as checklist_target_change,
-            CASE 
-                WHEN thought_count != prev_thought_count THEN 
-                    '思考历史: ' || COALESCE(prev_thought_count, 0) || ' → ' || COALESCE(thought_count, 0) || ' 条'
-                ELSE NULL
-            END as thought_count_change,
-            CASE 
-                WHEN action_count != prev_action_count THEN 
-                    '动作历史: ' || COALESCE(prev_action_count, 0) || ' → ' || COALESCE(action_count, 0) || ' 条'
-                ELSE NULL
-            END as action_count_change,
-            CASE 
-                WHEN rejected_count != prev_rejected_count THEN 
-                    '拒绝记录: ' || COALESCE(prev_rejected_count, 0) || ' → ' || COALESCE(rejected_count, 0) || ' 条'
-                ELSE NULL
-            END as rejected_count_change,
-            -- 添加拒绝内容的具体变化
-            CASE 
-                WHEN rejected_count != prev_rejected_count THEN 
-                    '拒绝内容变化: ' || COALESCE(LEFT(prev_rejected::VARCHAR, 100), 'N/A') || ' → ' || COALESCE(LEFT(rejected::VARCHAR, 100), 'N/A')
-                ELSE NULL
-            END as rejected_content_change
-        FROM step_data
-        WHERE prev_intent IS NOT NULL
+            intent,
+            website_name,
+            current_url,
+            thought_history,
+            action_history,
+            chosen,
+            rejected
+        FROM webprm 
+        WHERE task_id = '397'
         ORDER BY CAST(step_id AS INTEGER)
     """).fetchall()
     
-    print(f"   每个Step的变化详情:")
-    for row in step_changes:
-        step_id, prev_step_id, intent_change, website_change, start_url_change, current_url_change, \
-        text_obs_change, text_content_change, checklist_change, checklist_target_change, thought_count_change, \
-        action_count_change, rejected_count_change, rejected_content_change = row
+    for step_id, intent, website, current_url, thought_history, action_history, chosen, rejected in step_details:
+        print(f"\n{'='*100}")
+        print(f"Step {step_id}: {website} - {current_url}")
+        print(f"{'='*100}")
+        print(f"目标: {intent}")
+        print()
         
-        # 只显示发生变化的字段
-        changes = [change for change in [intent_change, website_change, start_url_change, current_url_change,
-                                       text_obs_change, text_content_change, checklist_change, checklist_target_change,
-                                       thought_count_change, action_count_change, rejected_count_change, rejected_content_change] 
-                  if change is not None]
-        
-        if changes:
-            print(f"     Step {prev_step_id} → Step {step_id}:")
-            for change in changes:
-                print(f"       {change}")
-            print()
+        # 分析thoughts - 显示完整内容
+        if thought_history and len(thought_history) > 0:
+            print(f"💭 Thoughts ({len(thought_history)} 条):")
+            print("-" * 50)
+            for i, thought in enumerate(thought_history):
+                print(f"Thought {i+1}:")
+                print(f"{thought}")
+                print()
         else:
-            print(f"     Step {prev_step_id} → Step {step_id}: 所有字段都相同")
+            print("💭 Thoughts: 无")
             print()
+        
+        # 分析actions - 显示完整内容
+        if action_history and len(action_history) > 0:
+            print(f"🎯 Actions ({len(action_history)} 条):")
+            print("-" * 50)
+            for i, action in enumerate(action_history):
+                print(f"Action {i+1}:")
+                print(f"{action}")
+                print()
+        else:
+            print("🎯 Actions: 无")
+            print()
+        
+        # 分析chosen决策 - 显示完整内容
+        if chosen:
+            print(f"✅ Chosen决策:")
+            print("-" * 50)
+            if isinstance(chosen, dict):
+                # 如果chosen是字典，显示其结构
+                for key, value in chosen.items():
+                    print(f"{key}:")
+                    print(f"{value}")
+                    print()
+            else:
+                print(f"{chosen}")
+                print()
+        else:
+            print("✅ Chosen决策: 无")
+            print()
+        
+        # 分析rejected决策 - 显示完整内容
+        if rejected and len(rejected) > 0:
+            print(f"❌ Rejected决策 ({len(rejected)} 条):")
+            print("-" * 50)
+            for i, reject in enumerate(rejected):
+                print(f"Rejected {i+1}:")
+                print(f"{reject}")
+                print()
+        else:
+            print("❌ Rejected决策: 无")
+            print()
+    
+    # 深入分析：Thoughts和Actions的对应关系
+    print(f"\n5. Thoughts和Actions的对应关系分析:")
+    print("=" * 100)
+    
+    for step_id, intent, website, current_url, thought_history, action_history, chosen, rejected in step_details:
+        print(f"\nStep {step_id} 的决策过程:")
+        print("-" * 50)
+        
+        if thought_history and action_history and len(thought_history) == len(action_history):
+            print(f"💡 每个Thought对应一个Action:")
+            for i in range(len(thought_history)):
+                thought = thought_history[i]
+                action = action_history[i]
+                print(f"\nThought {i+1}:")
+                print(f"{thought}")
+                print(f"\nAction {i+1}:")
+                print(f"{action}")
+                print("-" * 30)
+        elif thought_history and action_history:
+            print(f"⚠️  Thoughts数量({len(thought_history)})与Actions数量({len(action_history)})不匹配")
+        else:
+            print(f"ℹ️  缺少Thoughts或Actions数据")
+    
+    # 分析chosen列中的决策模式
+    print(f"\n6. Chosen列中的决策模式分析:")
+    print("=" * 100)
+    
+    # 统计chosen列的类型分布
+    chosen_types = con.execute("""
+        SELECT 
+            typeof(chosen) as chosen_type,
+            COUNT(*) as count
+        FROM webprm 
+        WHERE task_id = '397'
+        GROUP BY typeof(chosen)
+    """).fetchall()
+    
+    print(f"Chosen列类型分布:")
+    for chosen_type, count in chosen_types:
+        print(f"  {chosen_type}: {count} 条记录")
+    
+    # 分析chosen列的内容模式
+    print(f"\nChosen列内容模式:")
+    for step_id, intent, website, current_url, thought_history, action_history, chosen, rejected in step_details:
+        if chosen:
+            print(f"\nStep {step_id}:")
+            print("-" * 30)
+            if isinstance(chosen, dict):
+                print(f"决策类型: 结构化决策")
+                for key, value in chosen.items():
+                    print(f"{key}:")
+                    print(f"{value}")
+                    print()
+            elif isinstance(chosen, str):
+                print(f"决策类型: 文本决策")
+                print(f"内容:")
+                print(f"{chosen}")
+                print()
+            else:
+                print(f"决策类型: {type(chosen)}")
+                print(f"内容:")
+                print(f"{chosen}")
+                print()
     
     con.close()
 

@@ -51,7 +51,7 @@ gymnasium==0.29.1
 h11==0.14.0
 httpcore==0.18.0
 httpx==0.25.0
-huggingface-hub==0.16.4
+huggingface-hub>=0.34.0
 identify==2.5.30
 idna==3.4
 iniconfig==2.0.0
@@ -117,7 +117,7 @@ regex==2023.8.8
 requests==2.31.0
 responses==0.18.0
 rpds-py==0.10.6
-safetensors==0.3.3
+safetensors>=0.4.3
 scikit-image==0.22.0
 sentencepiece==0.1.99
 six==1.16.0
