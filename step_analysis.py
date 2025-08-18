@@ -7,6 +7,11 @@
 
 import duckdb
 from datasets import load_dataset
+import re
+import os
+import json
+from datetime import datetime
+import pandas as pd
 
 def main():
     # 连接到DuckDB数据库
@@ -16,8 +21,11 @@ def main():
     print("✅ 正在从Hugging Face加载WebPRM数据集...")
     
     try:
-        # 加载数据集
-        dataset = load_dataset("LangAGI-Lab/WebPRMCollection_preference_pair")
+        # 加载数据集（优先尝试 WebShepherd/，回退到 LangAGI-Lab/）
+        try:
+            dataset = load_dataset("WebShepherd/WebPRMCollection_preference_pair")
+        except Exception:
+            dataset = load_dataset("LangAGI-Lab/WebPRMCollection_preference_pair")
         print(f"✅ 成功加载数据集！包含 {len(dataset['test'])} 条记录")
         
         # 将数据集转换为DuckDB表
@@ -234,6 +242,147 @@ def main():
                 print(f"{chosen}")
                 print()
     
+    # ========== 新增：跨数据集提取 go_back 与 send_msg_to_user/send_msg 的出现位置与上下文 ==========
+    print("\n7. 跨数据集扫描 go_back 与 send_msg_to_user/send_msg 的出现位置与上下文")
+    print("=" * 100)
+
+    def to_str(obj):
+        try:
+            return json.dumps(obj, ensure_ascii=False)
+        except Exception:
+            return str(obj)
+
+    def find_occurrences_in_record(record: dict, row_index: int, dataset_name: str, split_name: str):
+        occurrences = []
+        action_regexes = {
+            "go_back": [
+                r"\bgo_back\b", r"\bgo\s*back\b", r"\bgo_backward\b", r"\bgo\s*backward\b"
+            ],
+            "send_msg": [
+                r"send_msg_to_user\s*\(", r"send_msg\s*\("
+            ],
+        }
+
+        def match_any(text: str, patterns: list[str]) -> bool:
+            return any(re.search(p, text, flags=re.IGNORECASE) for p in patterns)
+
+        # 基本标识
+        task_id = record.get("task_id")
+        step_id = record.get("step_id")
+        intent = record.get("intent") or record.get("instruction")
+        current_url = record.get("current_url") or record.get("url")
+        start_url = record.get("start_url")
+        text_observation = record.get("text_observation")
+
+        # 1) action_history（若存在）
+        if isinstance(record.get("action_history"), list):
+            for idx, act in enumerate(record["action_history"]):
+                act_text = to_str(act)
+                for action_key, patterns in action_regexes.items():
+                    if match_any(act_text, patterns):
+                        occurrences.append({
+                            "dataset": dataset_name,
+                            "split": split_name,
+                            "row_index": row_index,
+                            "task_id": task_id,
+                            "step_id": step_id,
+                            "occurrence_type": "action_history",
+                            "position": idx,
+                            "action_group": action_key,
+                            "raw": act_text,
+                            "intent": intent,
+                            "current_url": current_url,
+                            "start_url": start_url,
+                            "text_observation_snippet": (text_observation[:400] if isinstance(text_observation, str) else None),
+                        })
+
+        # 2) chosen
+        chosen = record.get("chosen")
+        if chosen is not None:
+            chosen_text = to_str(chosen)
+            for action_key, patterns in action_regexes.items():
+                if match_any(chosen_text, patterns):
+                    occurrences.append({
+                        "dataset": dataset_name,
+                        "split": split_name,
+                        "row_index": row_index,
+                        "task_id": task_id,
+                        "step_id": step_id,
+                        "occurrence_type": "chosen",
+                        "position": None,
+                        "action_group": action_key,
+                        "raw": chosen_text,
+                        "intent": intent,
+                        "current_url": current_url,
+                        "start_url": start_url,
+                        "text_observation_snippet": (text_observation[:400] if isinstance(text_observation, str) else None),
+                    })
+
+        # 3) rejected（列表）
+        rejected = record.get("rejected")
+        if isinstance(rejected, list):
+            for ridx, rej in enumerate(rejected):
+                rej_text = to_str(rej)
+                for action_key, patterns in action_regexes.items():
+                    if match_any(rej_text, patterns):
+                        occurrences.append({
+                            "dataset": dataset_name,
+                            "split": split_name,
+                            "row_index": row_index,
+                            "task_id": task_id,
+                            "step_id": step_id,
+                            "occurrence_type": "rejected",
+                            "position": ridx,
+                            "action_group": action_key,
+                            "raw": rej_text,
+                            "intent": intent,
+                            "current_url": current_url,
+                            "start_url": start_url,
+                            "text_observation_snippet": (text_observation[:400] if isinstance(text_observation, str) else None),
+                        })
+
+        return occurrences
+
+    def extract_from_hf_dataset(hf_ds, dataset_name: str, split_name: str):
+        results = []
+        for i, rec in enumerate(hf_ds[split_name]):
+            if isinstance(rec, dict):
+                record = rec
+            else:
+                try:
+                    record = rec.to_dict()
+                except Exception:
+                    record = dict(rec)
+            results.extend(find_occurrences_in_record(record, i, dataset_name, split_name))
+        return results
+
+    # 7.1 WebPRMCollection_preference_pair（test split）
+    ws_prm_results = extract_from_hf_dataset(dataset, "WebPRMCollection_preference_pair", "test")
+    print(f"WebPRMCollection_preference_pair（test）共检出: {len(ws_prm_results)} 条相关出现")
+
+    # 7.2 WebRewardBench（test split）
+    reward_bench_results = []
+    try:
+        wrb = load_dataset("WebShepherd/WebRewardBench")
+        reward_bench_results = extract_from_hf_dataset(wrb, "WebRewardBench", "test")
+        print(f"WebRewardBench（test）共检出: {len(reward_bench_results)} 条相关出现")
+    except Exception as e:
+        print(f"⚠️ 加载 WebRewardBench 失败: {e}")
+
+    # 合并并保存结果（便于后续监测对比）
+    all_results = ws_prm_results + reward_bench_results
+    out_dir = os.path.join("VAB-WebArena-Lite", "log_files")
+    os.makedirs(out_dir, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    json_path = os.path.join(out_dir, f"go_back_send_msg_occurrences_{timestamp}.json")
+    csv_path = os.path.join(out_dir, f"go_back_send_msg_occurrences_{timestamp}.csv")
+    with open(json_path, "w", encoding="utf-8") as f:
+        json.dump(all_results, f, ensure_ascii=False, indent=2)
+    if all_results:
+        pd.DataFrame(all_results).to_csv(csv_path, index=False)
+    print(f"已保存识别到的ID与上下文到:\n- {json_path}\n- {csv_path}")
+
+
     con.close()
 
 if __name__ == "__main__":
