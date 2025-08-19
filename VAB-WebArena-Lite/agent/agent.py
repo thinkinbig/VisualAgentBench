@@ -415,6 +415,7 @@ def construct_agent(args: argparse.Namespace, captioning_fn=None) -> Agent:
             num_samples=eff_num_samples,
             temperature=eff_temperature,
             top_p=eff_top_p,
+            use_batch_reward=getattr(args, "use_batch_reward", False),
         )
     else:
         raise NotImplementedError(

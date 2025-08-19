@@ -103,6 +103,11 @@ def config() -> argparse.Namespace:
         help="Output agent responses"
     )
     parser.add_argument(
+        "--use_batch_reward",
+        action="store_true",
+        help="Use batch reward scoring instead of per-action scoring"
+    )
+    parser.add_argument(
         "--log_level",
         type=str,
         default="INFO",

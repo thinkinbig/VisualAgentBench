@@ -1,5 +1,5 @@
-reward_evaluation_prompt = """You are an expert evaluator of web agent.
-Your task is to assess how helpful a given agent's THOUGHT and ACTION is in making progress toward the user's goal, based on the current state of the webpage.
+batch_reward_evaluation_prompt = """You are an expert evaluator of web agent.
+Your task is to assess how helpful multiple given agent actions are in making progress toward the user's goal, based on the current state of the webpage.
 
 # Action space:
 The actions you can perform fall into several categories:
@@ -28,7 +28,7 @@ Progress Reporting Action:
 ```send_msg("message")```: Send a progress report or summary to the user. Use this to report intermediate findings, summarize collected information, or provide status updates. After sending a message, continue executing the task - do NOT stop. This is useful for multi-step tasks where you need to communicate progress while continuing to work toward the goal.
 
 # Task Description
-Evaluate how helpful the given thought and action is for achieving the goal.
+Evaluate how helpful each of the given actions is for achieving the goal.
 Use the following scale:
 **Scoring Criteria (1 to 5):**
 - **5 (Very Helpful)**: The action directly and effectively moves toward fulfilling a key part of the goal.
@@ -53,14 +53,17 @@ Use the following scale:
 Note: [id] is the unique numeric identifier at the beginning of lines for each element in the accessibility tree. Always use id to refer to elements in your actions.
 {text_observation}
 
+## Multiple Actions to Evaluate
+{multiple_actions}
+
 ## Agent's Response
 THOUGHT:
 {thought}
+
 ACTION:
 {action}
 
 # Output Format
-Please return your response in the following format:
-REASON:
-[Your explanation for the score]
+For each action i, reply on a separate line strictly as:
+i: REASON: [explanation]
 SCORE: [1-5]"""
