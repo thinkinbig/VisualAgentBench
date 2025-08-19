@@ -41,6 +41,9 @@ Use the following scale:
 ## User Instruction
 {intent}
 
+## Trajectory
+{trajectory}
+
 ## Current State
 ### Current URL
 {current_url}

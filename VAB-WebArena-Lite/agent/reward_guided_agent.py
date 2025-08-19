@@ -348,7 +348,9 @@ class RewardGuidedAgent(Agent):
         try:
             # Create reward evaluation prompt
             reward_prompt = self._create_reward_prompt(action, trajectory, intent, meta_data)
-            self.logger.debug("Reward prompt (text):\n%s", reward_prompt)
+            
+            # Log the complete reward prompt for debugging
+            self.logger.info("=== REWARD PROMPT ===\n%s", reward_prompt)
             
             # Get reward score from reward model (build provider-specific API input)
             api_input = build_api_input_for_text(
@@ -358,6 +360,9 @@ class RewardGuidedAgent(Agent):
             )
             response = call_llm(self.reward_lm_config, api_input)
             self.logger.debug("Reward model response: %r", response)
+            
+            # Log the complete reward model interaction
+            self.logger.info("=== REWARD MODEL RESPONSE ===\n%s", response)
             
             # Extract reward score from response
             try:
@@ -403,6 +408,7 @@ class RewardGuidedAgent(Agent):
         try:
             # Build batch prompt
             current_text = trajectory[-1]["observation"].get("text", "No text observation")
+            current_url = self._get_current_url(trajectory)
             proposals: List[str] = []
             for idx, act in enumerate(actions, start=1):
                 raw_pred = act.get("raw_prediction", str(act))
@@ -429,7 +435,8 @@ class RewardGuidedAgent(Agent):
 
             user_text = (
                 f"Goal: {intent}\n\n"
-                f"Current State: {current_text}\n\n"
+                f"Current State: {current_text}\n"
+                f"Current URL: {current_url}\n\n"
                 "Proposed Actions (each line starts with index.):\n" +
                 "\n".join(proposals) +
                 "\n\nFor each action i, reply on a separate line strictly as:\ni: REASON: [explanation]\nSCORE: [1-5]"
@@ -443,9 +450,17 @@ class RewardGuidedAgent(Agent):
                 raise ValueError(
                     "Failed to get reward prompt. Please ensure reward_evaluation_prompt.py exists and is valid."
                 )
+            
+            # Log the complete batch reward prompt for debugging
+            self.logger.info("=== BATCH REWARD SYSTEM PROMPT ===\n%s", system_text)
+            self.logger.info("=== BATCH REWARD USER PROMPT ===\n%s", user_text)
+            
             api_input = build_api_input_for_text(self.reward_lm_config, system_text, user_text)
             response = call_llm(self.reward_lm_config, api_input)
             self.logger.debug("Batch reward model response: %r", response)
+            
+            # Log the complete batch reward model response
+            self.logger.info("=== BATCH REWARD MODEL RESPONSE ===\n%s", response)
 
             pattern = re.compile(r"^(\d+)\s*:\s*REASON:\s*.*?\nSCORE:\s*(\d+)", re.MULTILINE | re.DOTALL)
             matches = pattern.findall(response)
@@ -475,6 +490,46 @@ class RewardGuidedAgent(Agent):
                 for a in actions
             ]
 
+    def _format_trajectory_for_prompt(self, trajectory: Trajectory) -> str:
+        """Format trajectory for inclusion in reward prompt"""
+        try:
+            if not trajectory:
+                return "No trajectory available"
+            
+            # Format recent trajectory steps (last 5 for brevity)
+            formatted_steps = []
+            for i, step in enumerate(trajectory[-5:], 1):
+                if isinstance(step, dict):
+                    action_info = step.get("action", {})
+                    action_str = str(action_info) if action_info else "No action"
+                    
+                    # Get observation info
+                    obs = step.get("observation", {})
+                    obs_text = obs.get("text", "No observation")[:200]  # Limit length
+                    
+                    formatted_steps.append(f"Step {i}: Action: {action_str}\n  Observation: {obs_text}")
+            
+            return "\n".join(formatted_steps) if formatted_steps else "No trajectory steps available"
+        except Exception as e:
+            self.logger.warning("Error formatting trajectory: %s", e)
+            return "Error formatting trajectory"
+    
+    def _get_current_url(self, trajectory: Trajectory) -> str:
+        """Extract current URL from trajectory"""
+        try:
+            if trajectory and len(trajectory) > 0:
+                last_step = trajectory[-1]
+                if isinstance(last_step, dict):
+                    page_info = last_step.get("info", {}).get("page", {})
+                    if hasattr(page_info, 'url'):
+                        return page_info.url
+                    elif isinstance(page_info, dict):
+                        return page_info.get("url", "No URL available")
+            return "No URL available"
+        except Exception as e:
+            self.logger.warning("Error extracting URL: %s", e)
+            return "Error extracting URL"
+    
     def _create_reward_prompt(
         self, 
         action: Action, 
@@ -521,7 +576,8 @@ class RewardGuidedAgent(Agent):
             # Use the loaded reward evaluation prompt template
             return self.reward_prompt.format(
                 intent=intent,
-                current_url=current_text,
+                trajectory=self._format_trajectory_for_prompt(trajectory),
+                current_url=self._get_current_url(trajectory),
                 text_observation=current_text,
                 thought=thought,
                 action=proposed_action

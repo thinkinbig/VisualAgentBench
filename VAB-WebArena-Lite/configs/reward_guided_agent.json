@@ -2,7 +2,7 @@
     "agent_type": "reward_guided",
     "policy_lm_config": {
         "provider": "openai",
-        "model": "gpt-4o-mini",
+        "model": "gpt-4o",
         "mode": "chat",
         "gen_config": {
             "temperature": 1.0,

@@ -1,9 +1,0 @@
-{
-    "task_name": "Simple Shopping Task",
-    "intent": "Find and click on the search bar to search for products",
-    "start_url": "http://localhost:7770",
-    "meta_data": {
-        "action_set_tag": "id_accessibility_tree",
-        "observation_type": "accessibility_tree"
-    }
-}

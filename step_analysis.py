@@ -242,8 +242,8 @@ def main():
                 print(f"{chosen}")
                 print()
     
-    # ========== 新增：跨数据集提取 go_back 与 send_msg_to_user/send_msg 的出现位置与上下文 ==========
-    print("\n7. 跨数据集扫描 go_back 与 send_msg_to_user/send_msg 的出现位置与上下文")
+    # ========== 新增：跨数据集提取 chosen 的 thought 与 action ==========
+    print("\n7. 跨数据集提取 chosen 的 thought 与 action")
     print("=" * 100)
 
     def to_str(obj):
@@ -254,17 +254,98 @@ def main():
 
     def find_occurrences_in_record(record: dict, row_index: int, dataset_name: str, split_name: str):
         occurrences = []
-        action_regexes = {
-            "go_back": [
-                r"\bgo_back\b", r"\bgo\s*back\b", r"\bgo_backward\b", r"\bgo\s*backward\b"
-            ],
-            "send_msg": [
-                r"send_msg_to_user\s*\(", r"send_msg\s*\("
-            ],
-        }
 
-        def match_any(text: str, patterns: list[str]) -> bool:
-            return any(re.search(p, text, flags=re.IGNORECASE) for p in patterns)
+        def split_thought_action_from_text(text: str):
+            if not isinstance(text, str):
+                return None, None
+            thought_pat = r"(?:^|\n)\s*(?:Thoughts?|Reasoning|思考|想法)\s*[:：]\s*(.*?)(?=\n\s*(?:Action|行动|动作)\s*[:：]|\Z)"
+            action_pat = r"(?:^|\n)\s*(?:Action|行动|动作)\s*[:：]\s*(.*)"
+            thought_match = re.search(thought_pat, text, flags=re.IGNORECASE | re.DOTALL)
+            action_match = re.search(action_pat, text, flags=re.IGNORECASE | re.DOTALL)
+            thought = thought_match.group(1).strip() if thought_match else None
+            action = action_match.group(1).strip() if action_match else None
+            # 如果没匹配到，尝试把文本当作 JSON 解析
+            if (thought is None or action is None) and isinstance(text, str):
+                try:
+                    if text.strip().startswith(('{', '[')):
+                        obj = json.loads(text)
+                        if isinstance(obj, dict):
+                            if thought is None:
+                                thought = obj.get('thought') or obj.get('thoughts') or obj.get('reasoning')
+                            if action is None:
+                                a = obj.get('action') or obj.get('tool_action')
+                                if a is not None and not isinstance(a, str):
+                                    action = json.dumps(a, ensure_ascii=False)
+                                elif isinstance(a, str):
+                                    action = a
+                except Exception:
+                    pass
+            return thought, action
+
+        def extract_chosen_parts(chosen_obj):
+            chosen_full_text = to_str(chosen_obj) if chosen_obj is not None else None
+            chosen_thought_val = None
+            chosen_action_val = None
+            if isinstance(chosen_obj, dict):
+                chosen_thought_val = chosen_obj.get('thought') or chosen_obj.get('thoughts') or chosen_obj.get('reasoning')
+                a = chosen_obj.get('action') or chosen_obj.get('tool_action')
+                if a is not None and not isinstance(a, str):
+                    chosen_action_val = json.dumps(a, ensure_ascii=False)
+                elif isinstance(a, str):
+                    chosen_action_val = a
+            elif isinstance(chosen_obj, list):
+                # 取最后一个包含 action 的元素；否则取列表最后一个元素进行解析
+                candidate = None
+                for item in reversed(chosen_obj):
+                    if isinstance(item, dict) and (item.get('action') or item.get('tool_action')):
+                        candidate = item
+                        break
+                if candidate is None and len(chosen_obj) > 0:
+                    candidate = chosen_obj[-1]
+                if isinstance(candidate, dict):
+                    chosen_thought_val = candidate.get('thought') or candidate.get('thoughts') or candidate.get('reasoning')
+                    a = candidate.get('action') or candidate.get('tool_action')
+                    if a is not None and not isinstance(a, str):
+                        chosen_action_val = json.dumps(a, ensure_ascii=False)
+                    elif isinstance(a, str):
+                        chosen_action_val = a
+                elif isinstance(candidate, str):
+                    t, a = split_thought_action_from_text(candidate)
+                    chosen_thought_val, chosen_action_val = t, a
+            elif isinstance(chosen_obj, str):
+                t, a = split_thought_action_from_text(chosen_obj)
+                chosen_thought_val, chosen_action_val = t, a
+            return chosen_full_text, chosen_thought_val, chosen_action_val
+
+        def classify_action(action_text: str):
+            if not action_text or not isinstance(action_text, str):
+                return None
+            text = action_text.strip()
+            # 统一小写便于匹配
+            low = text.lower()
+            # send_msg 系列
+            if re.search(r"\bsend_msg_to_user\s*\(", low) or re.search(r"\bsend_msg\s*\(", low):
+                return "send_msg"
+            # go back 系列
+            if re.search(r"\bgo_back\b", low) or re.search(r"\bgo\s*back\b", low) or re.search(r"\bgo_backward\b", low) or re.search(r"\bgo\s*backward\b", low):
+                return "go_back"
+            # JSON 风格字符串里可能包含 id/name 字段
+            try:
+                if (low.startswith('{') and low.endswith('}')) or (low.startswith('[') and low.endswith(']')):
+                    obj = json.loads(text)
+                    if isinstance(obj, dict):
+                        cand = (
+                            obj.get('id') or obj.get('name') or obj.get('action') or obj.get('tool') or obj.get('tool_action')
+                        )
+                        if isinstance(cand, str):
+                            c = cand.lower()
+                            if 'send_msg' in c or 'send-msg' in c or 'send message' in c:
+                                return 'send_msg'
+                            if 'go_back' in c or 'go back' in c or 'backward' in c:
+                                return 'go_back'
+            except Exception:
+                pass
+            return None
 
         # 基本标识
         task_id = record.get("task_id")
@@ -274,34 +355,13 @@ def main():
         start_url = record.get("start_url")
         text_observation = record.get("text_observation")
 
-        # 1) action_history（若存在）
-        if isinstance(record.get("action_history"), list):
-            for idx, act in enumerate(record["action_history"]):
-                act_text = to_str(act)
-                for action_key, patterns in action_regexes.items():
-                    if match_any(act_text, patterns):
-                        occurrences.append({
-                            "dataset": dataset_name,
-                            "split": split_name,
-                            "row_index": row_index,
-                            "task_id": task_id,
-                            "step_id": step_id,
-                            "occurrence_type": "action_history",
-                            "position": idx,
-                            "action_group": action_key,
-                            "raw": act_text,
-                            "intent": intent,
-                            "current_url": current_url,
-                            "start_url": start_url,
-                            "text_observation_snippet": (text_observation[:400] if isinstance(text_observation, str) else None),
-                        })
-
-        # 2) chosen
-        chosen = record.get("chosen")
-        if chosen is not None:
-            chosen_text = to_str(chosen)
-            for action_key, patterns in action_regexes.items():
-                if match_any(chosen_text, patterns):
+        # 仅基于 chosen 生成一条汇总记录（按 step 粒度），并拆分 thought/action
+        chosen_obj = record.get("chosen")
+        if chosen_obj is not None:
+            chosen_full_text, chosen_thought_val, chosen_action_val = extract_chosen_parts(chosen_obj)
+            action_type = classify_action(chosen_action_val or chosen_full_text)
+            # 仅当 chosen 的动作属于 send_msg 或 go_back 时记录
+            if action_type in ("send_msg", "go_back"):
                     occurrences.append({
                         "dataset": dataset_name,
                         "split": split_name,
@@ -309,32 +369,10 @@ def main():
                         "task_id": task_id,
                         "step_id": step_id,
                         "occurrence_type": "chosen",
-                        "position": None,
-                        "action_group": action_key,
-                        "raw": chosen_text,
-                        "intent": intent,
-                        "current_url": current_url,
-                        "start_url": start_url,
-                        "text_observation_snippet": (text_observation[:400] if isinstance(text_observation, str) else None),
-                    })
-
-        # 3) rejected（列表）
-        rejected = record.get("rejected")
-        if isinstance(rejected, list):
-            for ridx, rej in enumerate(rejected):
-                rej_text = to_str(rej)
-                for action_key, patterns in action_regexes.items():
-                    if match_any(rej_text, patterns):
-                        occurrences.append({
-                            "dataset": dataset_name,
-                            "split": split_name,
-                            "row_index": row_index,
-                            "task_id": task_id,
-                            "step_id": step_id,
-                            "occurrence_type": "rejected",
-                            "position": ridx,
-                            "action_group": action_key,
-                            "raw": rej_text,
+                    "chosen_full": chosen_full_text,
+                    "chosen_thought": chosen_thought_val,
+                    "chosen_action": chosen_action_val,
+                    "chosen_action_type": action_type,
                             "intent": intent,
                             "current_url": current_url,
                             "start_url": start_url,
@@ -380,7 +418,284 @@ def main():
         json.dump(all_results, f, ensure_ascii=False, indent=2)
     if all_results:
         pd.DataFrame(all_results).to_csv(csv_path, index=False)
-    print(f"已保存识别到的ID与上下文到:\n- {json_path}\n- {csv_path}")
+
+    # 基于 task_id + step_id 分组（按数据集与切分进一步区分），仅保留 chosen 动作为 send_msg 或 go_back 的样本
+    groups = {}
+    for r in all_results:
+        key = (
+            r.get("dataset"),
+            r.get("split"),
+            r.get("task_id"),
+            r.get("step_id"),
+        )
+        if key not in groups:
+            groups[key] = {
+                "dataset": r.get("dataset"),
+                "split": r.get("split"),
+                "task_id": r.get("task_id"),
+                "step_id": r.get("step_id"),
+                "intent": r.get("intent"),
+                "current_url": r.get("current_url"),
+                "start_url": r.get("start_url"),
+                "num_occurrences": 0,
+                "chosen_full": None,
+                "chosen_thought": None,
+                "chosen_action": None,
+                "chosen_action_type": None,
+            }
+        g = groups[key]
+        g["num_occurrences"] += 1
+        # 以 chosen 相关字段为主进行聚合，优先保留有值的字段
+        cf = r.get("chosen_full")
+        ct = r.get("chosen_thought")
+        ca = r.get("chosen_action")
+        cat = r.get("chosen_action_type")
+        if cf and not g.get("chosen_full"):
+            g["chosen_full"] = cf
+        if ct and not g.get("chosen_thought"):
+            g["chosen_thought"] = ct
+        if ca and not g.get("chosen_action"):
+            g["chosen_action"] = ca
+        if cat and not g.get("chosen_action_type"):
+            g["chosen_action_type"] = cat
+
+    # 只保留确认为 send_msg / go_back 的分组
+    grouped_list = [g for g in groups.values() if g.get("chosen_action_type") in ("send_msg", "go_back")]
+
+    # 保存分组后的去冗余结果
+    grouped_json_path = os.path.join(out_dir, f"go_back_send_msg_occurrences_grouped_{timestamp}.json")
+    grouped_csv_path = os.path.join(out_dir, f"go_back_send_msg_occurrences_grouped_{timestamp}.csv")
+    with open(grouped_json_path, "w", encoding="utf-8") as f:
+        json.dump(grouped_list, f, ensure_ascii=False, indent=2)
+    if grouped_list:
+        pd.DataFrame(grouped_list).to_csv(grouped_csv_path, index=False)
+
+    print(
+        "已保存识别到的ID与上下文到:\n- {}\n- {}\n并保存按 task_id+step_id 分组后的去冗余结果到:\n- {}\n- {}".format(
+            json_path, csv_path, grouped_json_path, grouped_csv_path
+        )
+    )
+
+    # 8. 校验：每个 task 的最后一步是否为 send_msg
+    print("\n8. 校验：每个 task 的最后一步是否为 send_msg")
+    print("=" * 100)
+
+    def try_int(v):
+        try:
+            return int(v)
+        except Exception:
+            return None
+
+    def split_thought_action_from_text_check(text: str):
+        if not isinstance(text, str):
+            return None, None
+        thought_pat = r"(?:^|\n)\s*(?:Thoughts?|Reasoning|思考|想法)\s*[:：]\s*(.*?)(?=\n\s*(?:Action|行动|动作)\s*[:：]|\Z)"
+        action_pat = r"(?:^|\n)\s*(?:Action|行动|动作)\s*[:：]\s*(.*)"
+        thought_match = re.search(thought_pat, text, flags=re.IGNORECASE | re.DOTALL)
+        action_match = re.search(action_pat, text, flags=re.IGNORECASE | re.DOTALL)
+        thought = thought_match.group(1).strip() if thought_match else None
+        action = action_match.group(1).strip() if action_match else None
+        if (thought is None or action is None) and isinstance(text, str):
+            try:
+                if text.strip().startswith(('{', '[')):
+                    obj = json.loads(text)
+                    if isinstance(obj, dict):
+                        if thought is None:
+                            thought = obj.get('thought') or obj.get('thoughts') or obj.get('reasoning')
+                        if action is None:
+                            a = obj.get('action') or obj.get('tool_action')
+                            if a is not None and not isinstance(a, str):
+                                action = json.dumps(a, ensure_ascii=False)
+                            elif isinstance(a, str):
+                                action = a
+            except Exception:
+                pass
+        return thought, action
+
+    def extract_thought_action_from_chosen_check(chosen_obj):
+        thought_val = None
+        action_val = None
+        if chosen_obj is None:
+            return thought_val, action_val
+        if isinstance(chosen_obj, dict):
+            thought_val = chosen_obj.get('thought') or chosen_obj.get('thoughts') or chosen_obj.get('reasoning')
+            a = chosen_obj.get('action') or chosen_obj.get('tool_action')
+            if a is not None and not isinstance(a, str):
+                action_val = json.dumps(a, ensure_ascii=False)
+            elif isinstance(a, str):
+                action_val = a
+        elif isinstance(chosen_obj, list):
+            candidate = None
+            for item in reversed(chosen_obj):
+                if isinstance(item, dict) and (item.get('action') or item.get('tool_action')):
+                    candidate = item
+                    break
+            if candidate is None and len(chosen_obj) > 0:
+                candidate = chosen_obj[-1]
+            if isinstance(candidate, dict):
+                thought_val = candidate.get('thought') or candidate.get('thoughts') or candidate.get('reasoning')
+                a = candidate.get('action') or candidate.get('tool_action')
+                if a is not None and not isinstance(a, str):
+                    action_val = json.dumps(a, ensure_ascii=False)
+                elif isinstance(a, str):
+                    action_val = a
+            elif isinstance(candidate, str):
+                t, a = split_thought_action_from_text_check(candidate)
+                thought_val, action_val = t, a
+        elif isinstance(chosen_obj, str):
+            t, a = split_thought_action_from_text_check(chosen_obj)
+            thought_val, action_val = t, a
+        return thought_val, action_val
+
+    def classify_action_for_check(action_text: str):
+        if not action_text or not isinstance(action_text, str):
+            return None
+        text = action_text.strip()
+        low = text.lower()
+        if re.search(r"\bsend_msg_to_user\s*\(", low) or re.search(r"\bsend_msg\s*\(", low):
+            return "send_msg"
+        if re.search(r"\bgo_back\b", low) or re.search(r"\bgo\s*back\b", low) or re.search(r"\bgo_backward\b", low) or re.search(r"\bgo\s*backward\b", low):
+            return "go_back"
+        try:
+            if (low.startswith('{') and low.endswith('}')) or (low.startswith('[') and low.endswith(']')):
+                obj = json.loads(text)
+                if isinstance(obj, dict):
+                    cand = (
+                        obj.get('id') or obj.get('name') or obj.get('action') or obj.get('tool') or obj.get('tool_action')
+                    )
+                    if isinstance(cand, str):
+                        c = cand.lower()
+                        if 'send_msg' in c or 'send-msg' in c or 'send message' in c:
+                            return 'send_msg'
+                        if 'go_back' in c or 'go back' in c or 'backward' in c:
+                            return 'go_back'
+        except Exception:
+            pass
+        return None
+
+    def check_last_step_send_msg(hf_ds, dataset_name: str, split_name: str):
+        if hf_ds is None or split_name not in hf_ds:
+            print(f"跳过 {dataset_name}：split {split_name} 不可用")
+            return
+        # 先找每个 task 的最大 step_id
+        task_to_max_step = {}
+        for rec in hf_ds[split_name]:
+            r = rec if isinstance(rec, dict) else rec.to_dict()
+            tid = r.get('task_id')
+            sid = try_int(r.get('step_id'))
+            if tid is None or sid is None:
+                continue
+            if (tid not in task_to_max_step) or (sid > task_to_max_step[tid]):
+                task_to_max_step[tid] = sid
+        # 检查最后一步的 chosen
+        ok = 0
+        not_ok = []
+        total = len(task_to_max_step)
+        for rec in hf_ds[split_name]:
+            r = rec if isinstance(rec, dict) else rec.to_dict()
+            tid = r.get('task_id')
+            sid = try_int(r.get('step_id'))
+            if tid is None or sid is None:
+                continue
+            if task_to_max_step.get(tid) != sid:
+                continue
+            thought_text, act_text = extract_thought_action_from_chosen_check(r.get('chosen'))
+            act_type = classify_action_for_check(act_text or r.get('chosen'))
+            if act_type == 'send_msg':
+                ok += 1
+            else:
+                not_ok.append({
+                    'task_id': tid,
+                    'last_step_id': sid,
+                    'classified_action_type': act_type,
+                    'action_text': act_text,
+                    'thought_text': thought_text,
+                })
+        print(f"[{dataset_name}:{split_name}] 任务总数: {total}，最后一步为 send_msg 的任务: {ok}，不是的: {len(not_ok)}")
+        if not_ok:
+            # 仅打印前若干条，避免刷屏
+            limit = 20
+            print(f"示例（前{limit}项）非 send_msg 的最后一步任务，含 action_type 与 thought：")
+            for item in not_ok[:limit]:
+                print(f"  task {item['task_id']} last_step {item['last_step_id']} -> type: {item['classified_action_type']}")
+                if item.get('thought_text'):
+                    snippet = item['thought_text']
+                    if isinstance(snippet, str) and len(snippet) > 400:
+                        snippet = snippet[:400] + ' ...'
+                    print("    thought:")
+                    print(f"    {snippet}")
+                if item.get('action_text'):
+                    a_snippet = item['action_text']
+                    if isinstance(a_snippet, str) and len(a_snippet) > 300:
+                        a_snippet = a_snippet[:300] + ' ...'
+                    print("    action_text:")
+                    print(f"    {a_snippet}")
+        return total, ok, not_ok
+
+    # 对已加载的数据集进行校验
+    try:
+        check_last_step_send_msg(dataset, 'WebPRMCollection_preference_pair', 'test')
+    except Exception as e:
+        print(f"校验 WebPRMCollection_preference_pair 失败: {e}")
+    try:
+        # wrb 可能在前面加载失败
+        wrb_available = 'wrb' in locals()
+        if wrb_available:
+            check_last_step_send_msg(wrb, 'WebRewardBench', 'test')
+    except Exception as e:
+        print(f"校验 WebRewardBench 失败: {e}")
+
+    # 9. 打印 task_id = '1' 的最后一步 chosen 中的 thought 与 action
+    print("\n9. 打印 task_id = '1' 最后一步的 thought 与 action")
+    print("=" * 100)
+
+    def try_get_dict(rec):
+        return rec if isinstance(rec, dict) else rec.to_dict()
+
+    def split_thought_action_from_text_for_print(text: str):
+        if not isinstance(text, str):
+            return None, None
+        thought_pat = r"(?:^|\n)\s*(?:Thoughts?|Reasoning|思考|想法)\s*[:：]\s*(.*?)(?=\n\s*(?:Action|行动|动作)\s*[:：]|\Z)"
+        action_pat = r"(?:^|\n)\s*(?:Action|行动|动作)\s*[:：]\s*(.*)"
+        thought_match = re.search(thought_pat, text, flags=re.IGNORECASE | re.DOTALL)
+        action_match = re.search(action_pat, text, flags=re.IGNORECASE | re.DOTALL)
+        thought = thought_match.group(1).strip() if thought_match else None
+        action = action_match.group(1).strip() if action_match else None
+        if (thought is None or action is None) and isinstance(text, str):
+            try:
+                if text.strip().startswith(('{', '[')):
+                    obj = json.loads(text)
+                    if isinstance(obj, dict):
+                        if thought is None:
+                            thought = obj.get('thought') or obj.get('thoughts') or obj.get('reasoning')
+                        if action is None:
+                            a = obj.get('action') or obj.get('tool_action')
+                            if a is not None and not isinstance(a, str):
+                                action = json.dumps(a, ensure_ascii=False)
+                            elif isinstance(a, str):
+                                action = a
+            except Exception:
+                pass
+        return thought, action
+
+    def extract_thought_action_from_chosen_for_print(chosen_obj):
+        chosen_full_text = None
+        chosen_thought_val = None
+        chosen_action_val = None
+        if chosen_obj is None:
+            return chosen_full_text, chosen_thought_val, chosen_action_val
+        chosen_full_text = json.dumps(chosen_obj, ensure_ascii=False) if not isinstance(chosen_obj, str) else chosen_obj
+        if isinstance(chosen_obj, dict):
+            chosen_thought_val = chosen_obj.get('thought') or chosen_obj.get('thoughts') or chosen_obj.get('reasoning')
+            a = chosen_obj.get('action') or chosen_obj.get('tool_action')
+            if a is not None and not isinstance(a, str):
+                chosen_action_val = json.dumps(a, ensure_ascii=False)
+            elif isinstance(a, str):
+                chosen_action_val = a
+        elif isinstance(chosen_obj, str):
+            t, a = split_thought_action_from_text_for_print(chosen_obj)
+            chosen_thought_val, chosen_action_val = t, a
+        return chosen_full_text, chosen_thought_val, chosen_action_val
 
 
     con.close()

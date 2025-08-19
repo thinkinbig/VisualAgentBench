@@ -142,18 +142,27 @@ def main() -> None:
     if start_url:
         logger.info(f"Start URL: {start_url}")
 
-    # Create agent with simplified configuration
+    # Load agent configuration from file
+    config_path = "configs/reward_guided_agent.json"
+    if not Path(config_path).exists():
+        logger.error(f"Agent config file not found: {config_path}")
+        return
+        
+    with open(config_path, "r") as f:
+        agent_config = json.load(f)
+    
+    # Create agent with configuration from file
     from types import SimpleNamespace
     agent_args = SimpleNamespace(
         agent_type="reward_guided",
-        instruction_path="configs/reward_guided_agent.json",
-        provider="openai",
-        model="gpt-4o-mini",
+        instruction_path=config_path,
+        provider="openai",  # Default provider, will be overridden by config
+        model="gpt-4o-mini",  # Default model, will be overridden by config
         mode="chat",
-        temperature=1.0,
-        top_p=0.9,
+        temperature=agent_config.get("temperature", 1.0),
+        top_p=agent_config.get("top_p", 0.9),
         context_length=4096,
-        max_tokens=512,
+        max_tokens=agent_config.get("policy_lm_config", {}).get("gen_config", {}).get("max_tokens", 512),
         stop_token=None,
         max_obs_length=2048,
         max_retry=3,
