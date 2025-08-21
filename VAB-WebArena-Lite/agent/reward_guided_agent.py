@@ -30,7 +30,6 @@ class RewardGuidedAgent(Agent):
         num_samples: int = 10,
         temperature: float = 1.0,
         top_p: float = 0.9,
-        use_batch_reward: bool = False,
     ) -> None:
         super().__init__()
         self.action_set_tag = action_set_tag
@@ -40,7 +39,6 @@ class RewardGuidedAgent(Agent):
         self.num_samples = num_samples
         self.temperature = temperature
         self.top_p = top_p
-        self.use_batch_reward = use_batch_reward
 
         self.logger = logging.getLogger("reward_guided_logger")
         
@@ -61,9 +59,6 @@ class RewardGuidedAgent(Agent):
         
         # Load base prompt for reward LM
         self._load_reward_prompt()
-        
-        # Load batch reward prompt for batch scoring
-        self._load_batch_reward_prompt()
     
     def _load_enhanced_prompt(self) -> None:
         """Load the enhanced prompt for policy LM from raw Python file"""
@@ -84,16 +79,6 @@ class RewardGuidedAgent(Agent):
         except ImportError as e:
             self.logger.warning(f"Failed to import reward evaluation prompt from raw file: {e}")
             self.reward_prompt = None
-    
-    def _load_batch_reward_prompt(self) -> None:
-        """Load the batch reward evaluation prompt from raw Python file"""
-        try:
-            from agent.prompts.raw.batch_reward_evaluation_prompt import batch_reward_evaluation_prompt
-            self.batch_reward_prompt = batch_reward_evaluation_prompt
-            self.logger.info("Loaded batch reward evaluation prompt from raw file")
-        except ImportError as e:
-            self.logger.warning(f"Failed to import batch reward evaluation prompt from raw file: {e}")
-            self.batch_reward_prompt = None
     
     def set_action_set_tag(self, tag: str) -> None:
         self.action_set_tag = tag
@@ -410,115 +395,6 @@ class RewardGuidedAgent(Agent):
             self.logger.warning("Error scoring action with reward model: %s", e, exc_info=True)
             return 0.0
 
-    def _score_actions_with_reward_model(
-        self,
-        actions: List[Action],
-        trajectory: Trajectory,
-        intent: str,
-        meta_data: dict[str, Any],
-    ) -> List[float]:
-        """Batch score multiple actions in a single reward-model call.
-        Returns list of scores aligned with input actions. Falls back to per-action if parsing fails.
-        """
-        try:
-            # Build batch prompt
-            current_text = trajectory[-1]["observation"].get("text", "No text observation")
-            current_url = self._get_current_url(trajectory)
-            proposals: List[str] = []
-            for idx, act in enumerate(actions, start=1):
-                raw_pred = act.get("raw_prediction", str(act))
-                # Handle enhanced prompt format: "Let's think step-by-step... In summary, the next action I will perform is ```action```"
-                if isinstance(raw_pred, str) and "In summary, the next action I will perform is" in raw_pred:
-                    try:
-                        # Extract the action part (inside ``` ```) - focus on action for scoring
-                        action_part = self._extract_action_from_backticks(raw_pred)
-                        proposals.append(f"{idx}. {action_part}")
-                    except Exception:
-                        proposals.append(f"{idx}. {raw_pred}")
-                else:
-                    # Handle old format
-                    if isinstance(raw_pred, str) and "```" in raw_pred:
-                        try:
-                            raw_pred = self._extract_action_from_backticks(raw_pred)
-                        except Exception:
-                            raw_pred = raw_pred.replace("```", "").strip()
-                    proposals.append(f"{idx}. {raw_pred}")
-
-            # Use batch reward prompt template if available
-            if self.batch_reward_prompt:
-                # Format the batch reward prompt with the proposals (proposals already have numbers)
-                formatted_multiple_actions = "\n".join(proposals)
-                
-                # Get the first action's thoughts for the agent response section
-                first_action = actions[0] if actions else None
-                first_thoughts = first_action.get("thoughts", {}) if first_action else {}
-                agent_thought = first_thoughts.get("thought", "No thought provided")
-                agent_action = first_action.get("raw_prediction", str(first_action)) if first_action else "No action"
-                
-                complete_batch_prompt = self.batch_reward_prompt.format(
-                    intent=intent,
-                    trajectory=self._format_trajectory_for_prompt(trajectory),
-                    current_url=current_url,
-                    text_observation=current_text,
-                    multiple_actions=formatted_multiple_actions,
-                    thought=agent_thought,
-                    action=agent_action
-                )
-                
-                # Split into system and user parts
-                if "# Action space:" in complete_batch_prompt:
-                    system_text = complete_batch_prompt.split("# Action space:")[0].strip()
-                    user_text = complete_batch_prompt.split("# Action space:")[1].strip()
-                else:
-                    # Fallback if template doesn't have expected structure
-                    system_text = self.batch_reward_prompt.split("# Action space:")[0].strip()
-                    user_text = f"Goal: {intent}\n\nCurrent State: {current_text}\nCurrent URL: {current_url}\n\nProposed Actions:\n" + "\n".join(proposals) + "\n\nFor each action i, reply on a separate line strictly as:\ni: REASON: [explanation]\nSCORE: [1-5]"
-            else:
-                # Fallback to manual construction if batch prompt not available
-                system_text = self.reward_prompt.split("# Action space:")[0].strip()
-                user_text = f"Goal: {intent}\n\nCurrent State: {current_text}\nCurrent URL: {current_url}\n\nProposed Actions:\n" + "\n".join(proposals) + "\n\nFor each action i, reply on a separate line strictly as:\ni: REASON: [explanation]\nSCORE: [1-5]"
-            
-            # Log the complete batch reward prompt for debugging
-            complete_batch_prompt = system_text + "\n\n" + user_text
-            self.logger.debug("=== COMPLETE BATCH REWARD PROMPT ===\n%s", complete_batch_prompt)
-            self.logger.debug("=== BATCH REWARD SYSTEM PROMPT ===\n%s", system_text)
-            self.logger.debug("=== BATCH REWARD USER PROMPT ===\n%s", user_text)
-            
-            api_input = build_api_input_for_text(self.reward_lm_config, system_text, user_text)
-            response = call_llm(self.reward_lm_config, api_input)
-            self.logger.debug("Batch reward model response: %r", response)
-            
-            # Log the complete batch reward model response
-            self.logger.debug("=== BATCH REWARD MODEL RESPONSE ===\n%s", response)
-
-            pattern = re.compile(r"^(\d+)\s*:\s*REASON:\s*.*?\nSCORE:\s*(\d+)", re.MULTILINE | re.DOTALL)
-            matches = pattern.findall(response)
-            scores: List[float] = [1.0] * len(actions)  # Default to 1.0 instead of 0.0
-            for idx_str, score_str in matches:
-                try:
-                    i = int(idx_str)
-                    if 1 <= i <= len(actions):
-                        score = int(score_str)
-                        # Ensure score is within valid range (1 to 5)
-                        score = max(1, min(5, score))
-                        scores[i - 1] = float(score)
-                except Exception:
-                    continue
-
-            # If parsing failed for all, fallback to per-action scoring
-            if all(s == 1.0 for s in scores):
-                return [
-                    self._score_action_with_reward_model(a, trajectory, intent, meta_data)
-                    for a in actions
-                ]
-            return scores
-        except Exception as e:
-            self.logger.warning("Batch reward scoring failed, falling back to single: %s", e, exc_info=True)
-            return [
-                self._score_action_with_reward_model(a, trajectory, intent, meta_data)
-                for a in actions
-            ]
-
     def _format_trajectory_for_prompt(self, trajectory: Trajectory) -> str:
         """Format trajectory for inclusion in reward prompt"""
         try:
@@ -657,26 +533,10 @@ class RewardGuidedAgent(Agent):
         
         # Step 3: Score candidates using reward model
         scored_candidates = []
-        try:
-            if self.use_batch_reward:
-                self.logger.debug("Using batch reward scoring for %d candidates", len(top_candidates))
-                actions_for_batch = [a for _, a in top_candidates]
-                scores = self._score_actions_with_reward_model(actions_for_batch, trajectory, intent, meta_data)
-                for (response, action), score in zip(top_candidates, scores):
-                    scored_candidates.append((score, response, action))
-                    self.logger.info("Candidate scored (batch): score=%.3f, action=%s", score, str(action))
-            else:
-                self.logger.debug("Using per-action reward scoring for %d candidates", len(top_candidates))
-                for response, action in top_candidates:
-                    score = self._score_action_with_reward_model(action, trajectory, intent, meta_data)
-                    scored_candidates.append((score, response, action))
-                    self.logger.info("Candidate scored (single): score=%.3f, action=%s", score, str(action))
-        except Exception:
-            # Fallback: score one by one
-            for response, action in top_candidates:
-                score = self._score_action_with_reward_model(action, trajectory, intent, meta_data)
-                scored_candidates.append((score, response, action))
-                self.logger.info("Candidate scored (fallback single): score=%.3f, action=%s", score, str(action))
+        for response, action in top_candidates:
+            score = self._score_action_with_reward_model(action, trajectory, intent, meta_data)
+            scored_candidates.append((score, response, action))
+            self.logger.info("Candidate scored: score=%.3f, action=%s", score, str(action))
         
         # Sort by score (highest first)
         scored_candidates.sort(key=lambda x: x[0], reverse=True)
@@ -703,7 +563,6 @@ class RewardGuidedAgent(Agent):
         # Reload prompts to ensure they're up to date
         self._load_enhanced_prompt()
         self._load_reward_prompt()
-        self._load_batch_reward_prompt()
         
         self.logger.info("Agent reset: cleared discovery context and reloaded prompts")
     

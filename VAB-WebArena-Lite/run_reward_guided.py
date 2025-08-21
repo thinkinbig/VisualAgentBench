@@ -102,11 +102,7 @@ def config() -> argparse.Namespace:
         action="store_true",
         help="Output agent responses"
     )
-    parser.add_argument(
-        "--use_batch_reward",
-        action="store_true",
-        help="Use batch reward scoring instead of per-action scoring"
-    )
+
     parser.add_argument(
         "--log_level",
         type=str,
@@ -137,10 +133,10 @@ def main() -> None:
         test_config = json.load(f)
     
     # Extract task information
-    task_name = test_config.get("task_name", "Unknown Task")
+    task_name = f"Task {test_config.get('task_id', 'Unknown')}"
     intent = test_config.get("intent", "Complete the task")
     meta_data = test_config.get("meta_data", {})
-    start_url = test_config.get("start_url") or test_config.get("meta_data", {}).get("start_url")
+    start_url = test_config.get("start_url")
     
     logger.info(f"Starting task: {task_name}")
     logger.info(f"Intent: {intent}")

@@ -697,6 +697,65 @@ def main():
             chosen_thought_val, chosen_action_val = t, a
         return chosen_full_text, chosen_thought_val, chosen_action_val
 
+    # 10. 打印 task_id = '397' 的 checklist
+    print("\n10. 打印 task_id = '397' 的 checklist")
+    print("=" * 100)
+    try:
+        # 方式一：直接查找包含 checklist 的列
+        checklist_cols = [c for c in df.columns if 'checklist' in str(c).lower()]
+        if checklist_cols:
+            sub = df[df['task_id'] == '426'][['task_id', 'step_id'] + checklist_cols]
+            if not sub.empty:
+                print(f"检测到 checklist 列: {checklist_cols}")
+                for _, row in sub.iterrows():
+                    print(f"Step {row['step_id']}:")
+                    for col in checklist_cols:
+                        print(f"{col}:")
+                        print(row[col])
+                        print()
+        else:
+            # 方式二：从复杂字段中解析（例如 JSON 文本或嵌套字典）
+            print("未检测到显式 checklist 列，尝试从复杂字段解析...")
+            rows = df[df['task_id'] == '426']
+            found_any = False
+            for _, row in rows.iterrows():
+                for col in df.columns:
+                    val = row[col]
+                    checklist_value = None
+
+                    def find_in_obj(obj):
+                        if isinstance(obj, dict):
+                            for k, v in obj.items():
+                                if isinstance(k, str) and 'checklist' in k.lower():
+                                    return v
+                                inner = find_in_obj(v)
+                                if inner is not None:
+                                    return inner
+                        elif isinstance(obj, list):
+                            for item in obj:
+                                inner = find_in_obj(item)
+                                if inner is not None:
+                                    return inner
+                        return None
+
+                    if isinstance(val, dict):
+                        checklist_value = find_in_obj(val)
+                    elif isinstance(val, str):
+                        if ('## Checklist' in val) or ('"checklist"' in val.lower()):
+                            checklist_value = val
+
+                    if checklist_value is not None:
+                        found_any = True
+                        step_label = row['step_id'] if 'step_id' in row else '?'
+                        print(f"Step {step_label} 列 {col} 中包含 checklist:")
+                        print(checklist_value if isinstance(checklist_value, str) else json.dumps(checklist_value, ensure_ascii=False, indent=2))
+                        print()
+
+            if not found_any:
+                print("未在 task 397 中找到 checklist")
+    except Exception as e:
+        print(f"提取 checklist 时出错: {e}")
+
 
     con.close()
 
