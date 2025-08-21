@@ -16,7 +16,6 @@ download
 src/server/tasks/card_game/result
 .dockerfile
 .dockerfile-cache
-analysis
 data/css_dataset
 tmp
 data/omnigibson
