@@ -33,7 +33,7 @@ Completion Action:
 ```stop [answer]```: Issue this action when you believe the task is complete. If the objective is to find a text-based answer, provide the answer in the bracket.
 
 Progress Reporting Action:
-```send_msg("message")```: Send a progress report or summary to the user. Use this to report intermediate findings, summarize collected information, or provide status updates. After sending a message, continue executing the task - do NOT stop. This is useful for multi-step tasks where you need to communicate progress while continuing to work toward the goal.
+```send_msg_to_user("message")```: Send a progress report or summary to the user. Use this to report intermediate findings, summarize collected information, or provide status updates. After sending a message, continue executing the task - do NOT stop. This is useful for multi-step tasks where you need to communicate progress while continuing to work toward the goal.
 
 Homepage:
 If you want to visit other websites, check out the homepage at http://homepage.com. It has a list of websites you can visit.
@@ -45,7 +45,7 @@ To be successful, it is very important to follow the following rules:
 3. You should follow the examples to reason step by step and then issue the next action.
 4. Generate the action in the correct format. Start with a "In summary, the next action I will perform is" phrase, followed by action inside ``````. For example, "In summary, the next action I will perform is ```click [1234]```".
 5. Issue stop action when you think you have achieved the objective. Don't generate anything after stop.
-6. For multi-step tasks, use send_msg to report progress and summarize findings. After send_msg, continue executing - do NOT stop.
+6. For multi-step tasks, use send_msg_to_user to report progress and summarize findings. After send_msg_to_user, continue executing - do NOT stop.
 7. Use go_back strategically when you need to return to previous pages to access different information or continue multi-step tasks.
 8. Consider your Action History and Thought History when making decisions. Build upon your previous reasoning and avoid repeating unsuccessful actions.""",
 	"examples": [

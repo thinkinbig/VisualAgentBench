@@ -155,8 +155,8 @@ def action2str(
                 action_str = f"clear [{element_id}] where [{element_id}] is {semantic_element}"
             case ActionTypes.STOP:
                 action_str = f"stop [{action['answer']}]"
-            case ActionTypes.SEND_MESSAGE:
-                action_str = f"send_msg(\"{action['answer']}\")"
+            case ActionTypes.SEND_MESSAGE_TO_USER:
+                action_str = f"send_msg_to_user(\"{action['answer']}\")"
             case ActionTypes.NONE:
                 action_str = "none"
             case _:
@@ -196,8 +196,8 @@ def action2str(
                 action_str = f"page_focus [{action['page_number']}]"
             case ActionTypes.STOP:
                 action_str = f"stop [{action['answer']}]"
-            case ActionTypes.SEND_MESSAGE:
-                action_str = f"send_msg(\"{action['answer']}\")"
+            case ActionTypes.SEND_MESSAGE_TO_USER:
+                action_str = f"send_msg_to_user(\"{action['answer']}\")"
             case ActionTypes.NONE:
                 action_str = "none"
             case _:
@@ -229,6 +229,8 @@ def action2create_function(action: Action) -> str:
             return "create_go_back_action()"
         case ActionTypes.GO_FORWARD:
             return "create_go_forward_action()"
+        case ActionTypes.SEND_MESSAGE_TO_USER:
+            return f'create_send_message_to_user_action({repr(action["answer"])})'
         case ActionTypes.GOTO_URL:
             return f"create_goto_url_action({repr(action['url'])})"
         case ActionTypes.PAGE_CLOSE:
@@ -328,7 +330,7 @@ class ActionTypes(IntEnum):
     CLEAR = 18
     
     # message actions
-    SEND_MESSAGE = 21
+    SEND_MESSAGE_TO_USER = 21
     
     # webrl actions
     SEARCH = 22
@@ -384,7 +386,7 @@ def is_equivalent(a: Action, b: Action) -> bool:
             return a["pw_code"] == b["pw_code"]
         case ActionTypes.STOP:
             return a["answer"] == b["answer"]
-        case ActionTypes.SEND_MESSAGE:
+        case ActionTypes.SEND_MESSAGE_TO_USER:
             return a["answer"] == b["answer"]
         case _:
             raise ValueError(f"Unknown action type: {a['action_type']}")
@@ -519,10 +521,10 @@ def create_stop_action(answer: str) -> Action:
 
 
 @beartype
-def create_send_message_action(message: str) -> Action:
+def create_send_message_to_user_action(message: str) -> Action:
     """Create a send message action for user communication"""
     action = create_none_action()
-    action.update({"action_type": ActionTypes.SEND_MESSAGE, "answer": message})
+    action.update({"action_type": ActionTypes.SEND_MESSAGE_TO_USER, "answer": message})
     return action
 
 
@@ -1346,6 +1348,9 @@ def execute_action_webrl(
                     break
             if value is not None:
                 last_turn_element.select_option(value=value)
+        case ActionTypes.SEND_MESSAGE_TO_USER:
+            print(f"\n=== Intermediate Message ===\n{action['answer']}\n")
+            pass
         case _:
             raise ValueError(f"Unknown action type: {action_type}")
             
@@ -1474,7 +1479,7 @@ def execute_action(
             else:
                 page = browser_ctx.new_page()
 
-        case ActionTypes.SEND_MESSAGE:
+        case ActionTypes.SEND_MESSAGE_TO_USER:
             # Handle send_msg action - just log the message and continue
             message = action.get("answer", "")
             print(f"\n=== Intermediate Message ===\n{message}\n")
@@ -1607,6 +1612,10 @@ async def aexecute_action(
             page = await browser_ctx.new_page()
         case ActionTypes.GO_BACK:
             await page.go_back()
+        case ActionTypes.SEND_MESSAGE_TO_USER:
+            message = action.get("answer", "")
+            print(f"\n=== Intermediate Message ===\n{message}\n")
+            pass
         case ActionTypes.GO_FORWARD:
             await page.go_forward()
         case ActionTypes.GOTO_URL:
@@ -1781,12 +1790,11 @@ def create_playwright_action(playwright_code: str) -> Action:
 def create_id_based_action(action_str: str) -> Action:
     """Main function to return individual id based action"""
     action_str = action_str.strip()
-    # Support Web-Shepherd style send_msg/send_msg_to_user("...") as a SEND_MESSAGE action
     try:
-        msg_match = re.search(r"send_msg(?:_to_user)?\s*\(\s*([\"\'])(.*?)\1\s*\)", action_str, flags=re.DOTALL)
+        msg_match = re.search(r"send_msg_to_user\s*\(\s*([\"\'])(.*?)\1\s*\)", action_str, flags=re.DOTALL)
         if msg_match:
             message = msg_match.group(2)
-            return create_send_message_action(message)
+            return create_send_message_to_user_action(message)
     except Exception:
         pass
     if "[" in action_str:
@@ -2014,7 +2022,7 @@ def create_webrl_id_based_action(action_str: str) -> Action:
             answer = action['kwargs']['message']
             return create_stop_action(answer)
         case "send_msg_to_user" | "send_msg":
-            # 支持 Web-Shepherd 的消息动作，等价于 STOP(answer)
+            # 支持 Web-Shepherd 的消息动作
             answer = ""
             if "args" in action and isinstance(action["args"], list) and len(action["args"]) > 0:
                 answer = str(action["args"][0])

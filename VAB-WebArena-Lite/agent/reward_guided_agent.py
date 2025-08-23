@@ -1,5 +1,7 @@
 import logging
 import re
+import json
+import os
 from typing import Any, Optional, List, Dict, Tuple
 from PIL import Image
 
@@ -61,23 +63,31 @@ class RewardGuidedAgent(Agent):
         self._load_reward_prompt()
     
     def _load_enhanced_prompt(self) -> None:
-        """Load the enhanced prompt for policy LM from raw Python file"""
+        """Load the enhanced prompt for policy LM from JSON file"""
         try:
-            from agent.prompts.raw.p_cot_id_actree_3s_enhanced import prompt
-            self.enhanced_prompt = prompt
-            self.logger.info("Loaded enhanced prompt for policy LM from raw file")
-        except ImportError as e:
-            self.logger.warning(f"Failed to import enhanced prompt from raw file: {e}")
+            # Get the directory of the current file
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            json_path = os.path.join(current_dir, "prompts", "jsons", "enhanced_actree.json")
+            
+            with open(json_path, 'r', encoding='utf-8') as f:
+                self.enhanced_prompt = json.load(f)
+            self.logger.info("Loaded enhanced prompt for policy LM from JSON file: %s", json_path)
+        except (FileNotFoundError, json.JSONDecodeError, Exception) as e:
+            self.logger.warning(f"Failed to load enhanced prompt from JSON file: {e}")
             self.enhanced_prompt = None
     
     def _load_reward_prompt(self) -> None:
-        """Load the reward evaluation prompt from raw Python file"""
+        """Load the reward evaluation prompt from JSON file"""
         try:
-            from agent.prompts.raw.reward_evaluation_prompt import reward_evaluation_prompt
-            self.reward_prompt = reward_evaluation_prompt
-            self.logger.info("Loaded reward evaluation prompt from raw file")
-        except ImportError as e:
-            self.logger.warning(f"Failed to import reward evaluation prompt from raw file: {e}")
+            # Get the directory of the current file
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            json_path = os.path.join(current_dir, "prompts", "jsons", "reward_evaluation_prompt.json")
+            
+            with open(json_path, 'r', encoding='utf-8') as f:
+                self.reward_prompt = json.load(f)
+            self.logger.info("Loaded reward evaluation prompt from JSON file: %s", json_path)
+        except (FileNotFoundError, json.JSONDecodeError, Exception) as e:
+            self.logger.warning(f"Failed to load reward evaluation prompt from JSON file: {e}")
             self.reward_prompt = None
     
     def set_action_set_tag(self, tag: str) -> None:
@@ -138,16 +148,16 @@ class RewardGuidedAgent(Agent):
                 }
     
     def _update_discovery_context(self, action: Action, thoughts: Dict) -> None:
-        """Update discovery context with thoughts from send_msg actions"""
+        """Update discovery context with thoughts from send_msg_to_user actions"""
         if not thoughts or not thoughts.get("action"):
             return
             
         action_str = thoughts.get("action")
         
-        # Check if this is a send_msg action
-        if action_str.startswith("send_msg(") or "send_msg" in action_str:
+        # Check if this is a send_msg_to_user action
+        if action_str.startswith("send_msg_to_user(") or "send_msg_to_user" in action_str:
             # Extract the message content - handle both single and double quotes
-            message_match = re.search(r'send_msg\(["\']([^"\']+)["\']\)', action_str)
+            message_match = re.search(r'send_msg_to_user\(["\']([^"\']+)["\']\)', action_str)
             if message_match:
                 message_content = message_match.group(1)
                 
@@ -478,19 +488,23 @@ class RewardGuidedAgent(Agent):
         
         # Use loaded reward prompt template
         if self.reward_prompt:
-            # Use the loaded reward evaluation prompt template
-            return self.reward_prompt.format(
-                intent=intent,
-                trajectory=self._format_trajectory_for_prompt(trajectory),
-                current_url=self._get_current_url(trajectory),
-                text_observation=current_text,
-                thought=thought,
-                action=proposed_action
-            )
+            # Use the loaded reward evaluation prompt template from JSON
+            prompt_template = self.reward_prompt.get("prompt", "")
+            if prompt_template:
+                return prompt_template.format(
+                    intent=intent,
+                    trajectory=self._format_trajectory_for_prompt(trajectory),
+                    current_url=self._get_current_url(trajectory),
+                    text_observation=current_text,
+                    thought=thought,
+                    action=proposed_action
+                )
+            else:
+                raise ValueError("Reward prompt template not found in JSON file")
         else:
             # Fallback to default reward prompt
             raise ValueError(
-                "Failed to load reward prompt. Please ensure reward_evaluation_prompt.py exists and is valid."
+                "Failed to load reward prompt. Please ensure reward_evaluation_prompt.json exists and is valid."
             )
     
     @beartype
@@ -545,7 +559,7 @@ class RewardGuidedAgent(Agent):
         best_score, best_response, best_action = scored_candidates[0]
         self.logger.info("Best action selected: score=%.3f, action=%s", best_score, str(best_action))
         
-        # Step 5: Update discovery context if this is a send_msg action
+        # Step 5: Update discovery context if this is a send_msg_to_user action
         best_thoughts = best_action.get("thoughts")  # Get the thoughts dict
         if best_thoughts:
             self._update_discovery_context(best_action, best_thoughts)

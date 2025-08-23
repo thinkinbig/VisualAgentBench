@@ -247,9 +247,9 @@ def main() -> None:
             trajectory.append(action)
 
             # Handle send_msg actions
-            if action.get("action_type") == ActionTypes.SEND_MESSAGE:
+            if action.get("action_type") == ActionTypes.SEND_MESSAGE_TO_USER:
                 message = action.get("answer", "")
-                logger.info(f"=== SEND_MSG DISCOVERY ===\n{message}\n")
+                logger.info(f"=== SEND_MSG_TO_USER DISCOVERY ===\n{message}\n")
                 if args.output_response:
                     print(f"\n=== New Discovery ===\n{message}\n")
 
