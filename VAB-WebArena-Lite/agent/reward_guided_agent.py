@@ -410,20 +410,49 @@ class RewardGuidedAgent(Agent):
         try:
             if not trajectory:
                 return "No trajectory available"
-            
-            # Format recent trajectory steps (last 5 for brevity)
+
+            # Build pairs of (action_step, following_observation_step)
             formatted_steps = []
-            for i, step in enumerate(trajectory[-5:], 1):
-                if isinstance(step, dict):
-                    action_info = step.get("action", {})
-                    action_str = str(action_info) if action_info else "No action"
-                    
-                    # Get observation info
-                    obs = step.get("observation", {})
-                    obs_text = obs.get("text", "No observation")[:200]  # Limit length
-                    
-                    formatted_steps.append(f"Step {i}: Action: {action_str}\n  Observation: {obs_text}")
-            
+            step_counter = 1
+            # Only look back a reasonable window to keep prompt short
+            start_idx = max(0, len(trajectory) - 20)
+            i = start_idx
+            while i < len(trajectory):
+                step = trajectory[i]
+                # An action step is stored directly as an action dict with key 'action_type'
+                if isinstance(step, dict) and step.get("action_type") is not None:
+                    action_info = step
+                    # Prefer the concise action extracted from thoughts or from ```...```
+                    action_str = None
+                    thoughts = action_info.get("thoughts")
+                    if isinstance(thoughts, dict) and thoughts.get("action"):
+                        action_str = str(thoughts.get("action"))
+                    else:
+                        raw_pred = action_info.get("raw_prediction")
+                        if isinstance(raw_pred, str):
+                            action_str = (
+                                self._extract_action_from_backticks(raw_pred)
+                                if "```" in raw_pred else raw_pred
+                            )
+                    if not action_str:
+                        action_str = str(action_info)
+                    # Find the next observation following this action
+                    obs_text = "No observation"
+                    j = i + 1
+                    while j < len(trajectory):
+                        nxt = trajectory[j]
+                        if isinstance(nxt, dict) and nxt.get("observation") is not None:
+                            obs = nxt.get("observation", {})
+                            obs_text = str(obs.get("text", "No observation"))[:200]
+                            break
+                        j += 1
+
+                    formatted_steps.append(
+                        f"Step {step_counter}: Action: {action_str}\n  Observation: {obs_text}"
+                    )
+                    step_counter += 1
+                i += 1
+
             return "\n".join(formatted_steps) if formatted_steps else "No trajectory steps available"
         except Exception as e:
             self.logger.warning("Error formatting trajectory: %s", e)
