@@ -189,6 +189,41 @@ class TextObervationProcessor(ObservationProcessor):
             return {"result": {"subtype": "error"}}
 
     @staticmethod
+    def get_node_attribute(
+        client: CDPSession, backend_node_id: str, attribute: str
+    ) -> str | None:
+        """Return element attribute (e.g., href) via CDP given backend node id."""
+        try:
+            remote_object = client.send(
+                "DOM.resolveNode", {"backendNodeId": int(backend_node_id)}
+            )
+            remote_object_id = remote_object["object"]["objectId"]
+            response = client.send(
+                "Runtime.callFunctionOn",
+                {
+                    "objectId": remote_object_id,
+                    "functionDeclaration": f"""
+                        function() {{
+                            try {{
+                                if (this && this.getAttribute) {{
+                                    var v = this.getAttribute('{attribute}');
+                                    if (v) return v;
+                                }}
+                                if (this && this.{attribute}) {{
+                                    return this.{attribute}.toString();
+                                }}
+                            }} catch (e) {{}}
+                            return null;
+                        }}
+                    """,
+                    "returnByValue": True,
+                },
+            )
+            return response.get("result", {}).get("value", None)
+        except Exception:
+            return None
+
+    @staticmethod
     def get_element_in_viewport_ratio(
         elem_left_bound: float,
         elem_top_bound: float,
@@ -445,6 +480,23 @@ class TextObervationProcessor(ObservationProcessor):
                     width = response["result"]["value"]["width"]
                     height = response["result"]["value"]["height"]
                     node["union_bound"] = [x, y, width, height]
+
+                # For link nodes, attach URL (href) as a property so downstream can parse it
+                try:
+                    if node.get("role", {}).get("value", "") == "link":
+                        href = self.get_node_attribute(client, backend_node_id, "href")
+                        if href:
+                            if not href.startswith(("http://", "https://", "www.")):
+                                href = urljoin(page.url, href)
+                            props = node.setdefault("properties", [])
+                            props.append(
+                                {
+                                    "name": "url",
+                                    "value": {"type": "string", "value": href},
+                                }
+                            )
+                except Exception:
+                    pass
 
         client.detach()
         # filter nodes that are not in the current viewport
