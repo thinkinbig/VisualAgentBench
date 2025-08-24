@@ -244,6 +244,22 @@ def main() -> None:
                 action = create_stop_action(f"ERROR: {str(e)}")
 
             logger.info(f"Generated action: {action}")
+            # Per-step summary: concise action + reward score
+            try:
+                action_type = action.get("action_type")
+                if action_type is not None:
+                    action_name = str(action_type).split(".")[-1].lower()
+                else:
+                    action_name = "unknown"
+                element_id = action.get("element_id", "")
+                concise = f"{action_name} [{element_id}]" if element_id else action_name
+                reward_score = action.get("reward_score")
+                if reward_score is not None:
+                    logger.info(f"Step {step_idx + 1} chosen: {concise} (score={reward_score})")
+                else:
+                    logger.info(f"Step {step_idx + 1} chosen: {concise}")
+            except Exception:
+                pass
             trajectory.append(action)
 
             # Handle send_msg actions

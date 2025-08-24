@@ -9,7 +9,7 @@ from beartype import beartype
 from llms.utils import build_api_input_for_text, call_llm
 
 from .agent import Agent
-from browser_env import Trajectory
+from browser_env import Trajectory, ActionTypes
 from browser_env.actions import (
     Action,
     create_id_based_action,
@@ -43,6 +43,7 @@ class RewardGuidedAgent(Agent):
         self.top_p = top_p
 
         self.logger = logging.getLogger("reward_guided_logger")
+        self.reward_score_max_retries = 3
         
         # Initialize discovery context for storing thoughts from send_msg actions
         self.discovery_context = []
@@ -115,6 +116,17 @@ class RewardGuidedAgent(Agent):
     def _extract_thoughts_from_response(self, response: str) -> Dict:
         """Extract thoughts and action from the enhanced prompt response format (single-step)."""
         try:
+            # Preferred format: explicit THOUGHT and ACTION sections
+            thought_action_match = re.search(r"THOUGHT:\s*(.*?)\s*ACTION:\s*```([\s\S]*?)```", response, re.IGNORECASE | re.DOTALL)
+            if thought_action_match:
+                reasoning_part = thought_action_match.group(1).strip()
+                action = thought_action_match.group(2).strip()
+                return {
+                    "thought": reasoning_part,
+                    "action": action,
+                    "raw_response": response
+                }
+
             if "In summary, the next action I will perform is" in response:
                 summary_start = response.find("In summary, the next action I will perform is")
                 reasoning_part = response[:summary_start].strip()
@@ -146,6 +158,32 @@ class RewardGuidedAgent(Agent):
                     "action": "",
                     "raw_response": response
                 }
+
+    def _concise_action_string(self, action: Action) -> str:
+        """Return a concise string like 'click [1234]' or 'type [5678]' for logging."""
+        try:
+            action_type = action.get("action_type")
+            element_id = action.get("element_id", "")
+            if action_type is None:
+                return str(action)
+            if isinstance(action_type, ActionTypes):
+                action_name = str(action_type).split(".")[-1].lower()
+            else:
+                action_name = str(action_type).lower()
+            if element_id:
+                return f"{action_name} [{element_id}]"
+            key_comb = action.get("key_comb", "")
+            direction = action.get("direction", "")
+            answer = action.get("answer", "")
+            if action_name == "press" and key_comb:
+                return f"press [{key_comb}]"
+            if action_name == "scroll" and direction:
+                return f"scroll [{direction}]"
+            if action_name == "stop" and answer:
+                return f"stop [{answer}]"
+            return action_name
+        except Exception:
+            return str(action)
     
     def _update_discovery_context(self, action: Action, thoughts: Dict) -> None:
         """Update discovery context with thoughts from send_msg_to_user actions"""
@@ -281,8 +319,8 @@ class RewardGuidedAgent(Agent):
                             examples_block.append(f"Example {i+1}:\nInput: {input_ex}\nOutput: {output_ex}")
                         system_text = system_text + "\n\nExamples:\n" + "\n\n".join(examples_block)
 
-                    # User prompt: ONLY current filled template
-                    user_text = f"{current_input}\n\nPlease think step-by-step and then provide your action."
+                    # User prompt: ONLY current filled template (format instructions are in the prompt JSON)
+                    user_text = f"{current_input}"
 
                     # Build API input
                     api_input = build_api_input_for_text(
@@ -310,6 +348,9 @@ class RewardGuidedAgent(Agent):
                     continue
                 
                 self.logger.debug("[Sample %d] Extracted action string: %s", sample_idx, parsed_response)
+                if thoughts and isinstance(thoughts, dict):
+                    thought_preview = (thoughts.get("thought") or "").replace("\n", " ")[:200]
+                    self.logger.debug("[Sample %d] Thought->Action: %s => %s", sample_idx, thought_preview, parsed_response)
                 
                 try:
                     if self.action_set_tag == "id_accessibility_tree":
@@ -356,51 +397,44 @@ class RewardGuidedAgent(Agent):
     ) -> float:
         """Score an action using the reward model"""
         try:
-            # Create reward evaluation prompt
+            concise = self._concise_action_string(action)
             reward_prompt = self._create_reward_prompt(action, trajectory, intent, meta_data)
-            
-            # Log the complete reward prompt for debugging
+            self.logger.info("Scoring action: %s", concise)
             self.logger.debug("=== REWARD PROMPT ===\n%s", reward_prompt)
-            
-            # Get reward score from reward model (build provider-specific API input)
-            api_input = build_api_input_for_text(
-                self.reward_lm_config,
-                "You are a reward model for web agents. Read the user's content and output only: Score: X.X",
-                reward_prompt,
-            )
-            response = call_llm(self.reward_lm_config, api_input)
-            self.logger.debug("Reward model response: %r", response)
-            
-            # Log the complete reward model interaction
-            self.logger.debug("=== REWARD MODEL RESPONSE ===\n%s", response)
-            
-            # Extract reward score from response
-            try:
-                # Try to extract numerical score using SCORE format
-                score_match = re.search(r'SCORE:\s*(\d+)', response)
+
+            for attempt in range(1, self.reward_score_max_retries + 1):
+                # Use system + user_template from JSON prompt for reward model
+                if self.reward_prompt and self.reward_prompt.get("system") and self.reward_prompt.get("user_template"):
+                    system_text = self.reward_prompt["system"]
+                    user_text = self.reward_prompt["user_template"].format(
+                        intent=intent,
+                        trajectory=self._format_trajectory_for_prompt(trajectory),
+                        current_url=self._get_current_url(trajectory),
+                        text_observation=trajectory[-1]["observation"].get("text", "No text observation"),
+                        thought=self._extract_thoughts_from_response(action.get("raw_prediction", "")).get("thought", ""),
+                        action=self._extract_action_from_backticks(action.get("raw_prediction", str(action)))
+                    )
+                    api_input = build_api_input_for_text(self.reward_lm_config, system_text, user_text)
+                else:
+                    api_input = build_api_input_for_text(
+                        self.reward_lm_config,
+                        "You are a reward model for web agents. Read the user's content and output only: SCORE: X",
+                        reward_prompt,
+                    )
+                response = call_llm(self.reward_lm_config, api_input)
+                self.logger.debug("=== REWARD MODEL RESPONSE (attempt %d) ===\n%s", attempt, response)
+
+                score_match = re.search(r'SCORE:\s*([1-5])', response)
                 if score_match:
                     score = int(score_match.group(1))
-                    # Ensure score is within valid range (1 to 5)
-                    score = max(1, min(5, score))
                     self.logger.debug("Extracted reward score: %s", score)
                     return float(score)
-                
-                # Fallback: try to find any number in the response
-                numbers = re.findall(r'\d+', response)
-                if numbers:
-                    score = int(numbers[0])
-                    # Ensure score is within valid range (1 to 5)
-                    score = max(1, min(5, score))
-                    self.logger.debug("Fallback extracted numeric score: %s", score)
-                    return float(score)
-                
-                # If no score found, return a default score
-                self.logger.debug("No numeric score found, defaulting to 1.0")
-                return 1.0
-                
-            except (ValueError, IndexError):
-                return 1.0
-                
+
+                self.logger.warning("Reward model returned no valid SCORE on attempt %d; retrying...", attempt)
+
+            self.logger.debug("No valid SCORE after %d attempts, defaulting to 1.0", self.reward_score_max_retries)
+            return 1.0
+
         except Exception as e:
             self.logger.warning("Error scoring action with reward model: %s", e, exc_info=True)
             return 0.0
@@ -487,8 +521,18 @@ class RewardGuidedAgent(Agent):
         proposed_action = raw_pred
         thought = ""
         
-        # Parse the enhanced prompt format: "Let's think step-by-step... In summary, the next action I will perform is ```action```"
-        if isinstance(raw_pred, str) and "In summary, the next action I will perform is" in raw_pred:
+        # Parse formats: THOUGHT/ACTION blocks or legacy "In summary...```action```"
+        if isinstance(raw_pred, str) and re.search(r"THOUGHT:\s*", raw_pred, re.IGNORECASE):
+            try:
+                ta_match = re.search(r"THOUGHT:\s*(.*?)\s*ACTION:\s*```([\s\S]*?)```", raw_pred, re.IGNORECASE | re.DOTALL)
+                if ta_match:
+                    thought = ta_match.group(1).strip()
+                    proposed_action = ta_match.group(2).strip()
+                else:
+                    proposed_action = self._extract_action_from_backticks(raw_pred)
+            except Exception:
+                proposed_action = self._extract_action_from_backticks(raw_pred) if "```" in raw_pred else raw_pred
+        elif isinstance(raw_pred, str) and "In summary, the next action I will perform is" in raw_pred:
             try:
                 # Extract the reasoning part (everything before "In summary")
                 summary_start = raw_pred.find("In summary, the next action I will perform is")
@@ -517,7 +561,18 @@ class RewardGuidedAgent(Agent):
         
         # Use loaded reward prompt template
         if self.reward_prompt:
-            # Use the loaded reward evaluation prompt template from JSON
+            # Preferred: user_template (pairs with separate system text)
+            user_tmpl = self.reward_prompt.get("user_template", "")
+            if user_tmpl:
+                return user_tmpl.format(
+                    intent=intent,
+                    trajectory=self._format_trajectory_for_prompt(trajectory),
+                    current_url=self._get_current_url(trajectory),
+                    text_observation=current_text,
+                    thought=thought,
+                    action=proposed_action
+                )
+            # Backward compatibility: single prompt template
             prompt_template = self.reward_prompt.get("prompt", "")
             if prompt_template:
                 return prompt_template.format(
@@ -573,6 +628,11 @@ class RewardGuidedAgent(Agent):
             # Use the first occurrence of each unique action
             top_candidates.append(action_list[0])
         self.logger.debug("Top %d unique candidates selected for scoring", len(top_candidates))
+        try:
+            unique_strs = [self._concise_action_string(a) for (_, a) in top_candidates]
+            self.logger.info("Unique actions to score (up to 3): %s", ", ".join(unique_strs))
+        except Exception:
+            pass
         
         # Step 3: Score candidates using reward model
         scored_candidates = []
@@ -587,6 +647,10 @@ class RewardGuidedAgent(Agent):
         # Step 4: Select best action
         best_score, best_response, best_action = scored_candidates[0]
         self.logger.info("Best action selected: score=%.3f, action=%s", best_score, str(best_action))
+        try:
+            best_action["reward_score"] = float(best_score)
+        except Exception:
+            pass
         
         # Step 5: Update discovery context if this is a send_msg_to_user action
         best_thoughts = best_action.get("thoughts")  # Get the thoughts dict
