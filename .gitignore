@@ -29,4 +29,5 @@ src/server/tasks/minecraft/vab_minecraft_src/jarvis/global_configs/envs/*
 *.log
 
 
-data/
+data/.env
+**/.env
