@@ -42,7 +42,17 @@ def load_env_from_dotenv() -> None:
 # Load .env early
 load_env_from_dotenv()
 
-from browser_env import ScriptBrowserEnv
+# Prefer importing directly from envs to avoid None fallback in package __init__
+try:
+    from browser_env.envs import ScriptBrowserEnv  # type: ignore
+except Exception:
+    # Fallback to package-level import (may be None if optional deps missing)
+    from browser_env import ScriptBrowserEnv  # type: ignore
+    if ScriptBrowserEnv is None:  # type: ignore
+        raise ImportError(
+            "ScriptBrowserEnv is unavailable. Ensure WebArena/browser_env dependencies are installed "
+            "and that 'browser_env/envs.py' imports correctly."
+        )
 from browser_env.processors import TextObervationProcessor
 
 # Setup logging
@@ -112,10 +122,11 @@ def config() -> argparse.Namespace:
 def capture_actree_observation(
     url: str,
     render: bool = False,
-    wait_time: float = 3.0,
-    viewport_width: int = 1280,
-    viewport_height: int = 2048,
-    current_viewport_only: bool = False
+    wait_time: float = 0.5,
+    viewport_width: int = 1024,
+    viewport_height: int = 768,
+    current_viewport_only: bool = True,
+    post_action: Optional[str] = None
 ) -> dict:
     """
     Capture accessibility tree observation from a specified webpage.
@@ -162,11 +173,26 @@ def capture_actree_observation(
             logger.info(f"Waiting {wait_time} seconds for page to load...")
             time.sleep(wait_time)
         
-        # Get the observation (no extra action; keep the latest obs after goto + wait)
+        # Optionally perform a follow-up action (e.g., a rejected action) before capturing
+        if post_action:
+            try:
+                logger.info(f"Executing post action: {post_action}")
+                from browser_env.actions import create_playwright_action
+                pw_action = create_playwright_action(post_action)
+                obs, _, _, _, info = env.step(pw_action)
+                if wait_time > 0:
+                    time.sleep(min(wait_time, 0.5))
+            except Exception as e:
+                logger.error(f"Failed to execute post_action '{post_action}': {e}")
+
+        # Get the observation (latest after goto (+ optional post_action) + wait)
         logger.info("Capturing accessibility tree...")
         
         # Extract the text observation
         text_observation = obs.get("text", "")
+        # Clean up formatting: remove tab characters which can hinder downstream parsing
+        if "\t" in text_observation:
+            text_observation = text_observation.replace("\t", "")
         
         # Get page title and URL
         page_title = info.get("observation_metadata", {}).get("page_title", "Unknown")
