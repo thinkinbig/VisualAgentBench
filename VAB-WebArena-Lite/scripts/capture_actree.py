@@ -162,9 +162,8 @@ def capture_actree_observation(
             logger.info(f"Waiting {wait_time} seconds for page to load...")
             time.sleep(wait_time)
         
-        # Get the observation
+        # Get the observation (no extra action; keep the latest obs after goto + wait)
         logger.info("Capturing accessibility tree...")
-        obs, _, _, _, info = env.step(create_playwright_action("page.wait_for_load_state('networkidle')"))
         
         # Extract the text observation
         text_observation = obs.get("text", "")
@@ -172,7 +171,8 @@ def capture_actree_observation(
         # Get page title and URL
         page_title = info.get("observation_metadata", {}).get("page_title", "Unknown")
         # Prefer the actual page URL from info['page'] to handle redirects
-        current_url = info.get("page").url if isinstance(info.get("page"), DetachedPage) else info.get("observation_metadata", {}).get("url", url)
+        page = info.get("page")
+        current_url = getattr(page, "url", None) or info.get("observation_metadata", {}).get("url", url)
         
         result = {
             "url": current_url,
