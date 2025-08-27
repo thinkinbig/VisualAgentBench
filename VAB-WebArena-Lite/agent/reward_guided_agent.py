@@ -271,30 +271,40 @@ class RewardGuidedAgent(Agent):
                     enhanced_examples = self.enhanced_prompt.get("examples", [])
                     enhanced_template = self.enhanced_prompt.get("template", "")
                     
-                    # Build histories
-                    # Action history from meta_data
-                    action_hist_list = []
+                    # Build trajectory entries as pairs of {THOUGHT, ACTION}
+                    trajectory_entries: list[str] = []
                     try:
-                        if isinstance(meta_data, dict):
-                            action_hist_list = list(meta_data.get("action_history", []))
-                    except Exception:
-                        action_hist_list = []
-                    # Drop the initial placeholder if present
-                    if action_hist_list and action_hist_list[0] == "None":
-                        action_hist_list = action_hist_list[1:]
-                    action_hist_str = "\n".join([f"- {a}" for a in action_hist_list[-10:]]) if action_hist_list else "(empty)"
-                    
-                    # Thought history derived from past actions in trajectory
-                    thought_hist_entries: list[str] = []
-                    try:
-                        for item in trajectory:
-                            if isinstance(item, dict) and item.get("action_type") is not None:
-                                t = item.get("thoughts", {}).get("thought")
-                                if t:
-                                    thought_hist_entries.append(t)
+                        for step in trajectory:
+                            if isinstance(step, dict) and step.get("action_type") is not None:
+                                # Thought text (if any)
+                                thought_text = ""
+                                try:
+                                    thought_text = (step.get("thoughts", {}) or {}).get("thought", "") or ""
+                                except Exception:
+                                    thought_text = ""
+                                # Action string (prefer thoughts->action, then raw_prediction, then concise)
+                                action_str = None
+                                thoughts_obj = step.get("thoughts")
+                                if isinstance(thoughts_obj, dict) and thoughts_obj.get("action"):
+                                    action_str = str(thoughts_obj.get("action"))
+                                else:
+                                    raw_pred = step.get("raw_prediction")
+                                    if isinstance(raw_pred, str):
+                                        action_str = (
+                                            self._extract_action_from_backticks(raw_pred)
+                                            if "```" in raw_pred else raw_pred
+                                        )
+                                if not action_str:
+                                    try:
+                                        action_str = self._concise_action_string(step)
+                                    except Exception:
+                                        action_str = str(step)
+                                trajectory_entries.append(
+                                    f"## Trajectory {{THOUGHT: {thought_text}, ACTION: {action_str}}}"
+                                )
                     except Exception:
                         pass
-                    thought_hist_str = "\n".join([f"- {t}" for t in thought_hist_entries[-10:]]) if thought_hist_entries else "(empty)"
+                    trajectory_str = "\n".join(trajectory_entries[-10:]) if trajectory_entries else "(empty)"
                     
                     # Get current observation and URL
                     current_obs = trajectory[-1]["observation"].get("text", "No observation")
@@ -307,8 +317,7 @@ class RewardGuidedAgent(Agent):
                         url=current_url,
                         objective=intent_with_context,
                         previous_action=previous_action,
-                        action_history=action_hist_str,
-                        thought_history=thought_hist_str
+                        trajectory=trajectory_str
                     )
                     
                     # System prompt: intro + few-shot examples
@@ -328,11 +337,11 @@ class RewardGuidedAgent(Agent):
                         system_text,
                         user_text
                     )
-                    # Log prompts only once per step (first sample) for inspection
+                    # Log prompts once per environment step (first sample) at INFO level
                     if sample_idx == 0:
                         try:
-                            self.logger.debug("=== POLICY SYSTEM PROMPT ===\n%s", system_text)
-                            self.logger.debug("=== POLICY USER PROMPT ===\n%s", user_text)
+                            self.logger.info("=== POLICY SYSTEM PROMPT ===\n%s", system_text)
+                            self.logger.info("=== POLICY USER PROMPT ===\n%s", user_text)
                         except Exception:
                             pass
                     response = call_llm(self.policy_lm_config, api_input)
