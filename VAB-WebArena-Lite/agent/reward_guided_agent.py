@@ -346,7 +346,6 @@ class RewardGuidedAgent(Agent):
                             pass
                     response = call_llm(self.policy_lm_config, api_input)
             
-                self.logger.debug("[Sample %d] Raw LLM response: %r", sample_idx, response)
             
                 # Extract thoughts and action from the new format
                 thoughts = self._extract_thoughts_from_response(response)
@@ -356,7 +355,7 @@ class RewardGuidedAgent(Agent):
                     self.logger.warning("[Sample %d] No action extracted from response", sample_idx)
                     continue
                 
-                self.logger.debug("[Sample %d] Extracted action string: %s", sample_idx, parsed_response)
+                # Removed redundant extracted action log per sample; keep only Thought->Action below
                 if thoughts and isinstance(thoughts, dict):
                     thought_preview = (thoughts.get("thought") or "").replace("\n", " ")[:200]
                     self.logger.debug("[Sample %d] Thought->Action: %s => %s", sample_idx, thought_preview, parsed_response)
@@ -384,7 +383,6 @@ class RewardGuidedAgent(Agent):
                 action["raw_prediction"] = response
                 action["thoughts"] = thoughts  # Store thoughts dict for later use
                 candidates.append((response, action))
-                self.logger.debug("[Sample %d] Parsed action OK: %s", sample_idx, str(action))
                 
                 # Early-exit checks
                 action_key = str(action)
@@ -415,13 +413,30 @@ class RewardGuidedAgent(Agent):
                 # Use system + user_template from JSON prompt for reward model
                 if self.reward_prompt and self.reward_prompt.get("system") and self.reward_prompt.get("user_template"):
                     system_text = self.reward_prompt["system"]
+
+                    # Prefer thought/action stored on the action object; fallback to parsing raw_prediction
+                    thought_text = ""
+                    action_text = ""
+                    try:
+                        th = action.get("thoughts")
+                        if isinstance(th, dict):
+                            thought_text = (th.get("thought") or "")
+                            action_text = (th.get("action") or "")
+                    except Exception:
+                        pass
+                    if not thought_text:
+                        thought_text = self._extract_thoughts_from_response(action.get("raw_prediction", "")).get("thought", "")
+                    if not action_text:
+                        raw_pred_val = action.get("raw_prediction", str(action))
+                        action_text = self._extract_action_from_backticks(raw_pred_val if isinstance(raw_pred_val, str) else str(action))
+
                     user_text = self.reward_prompt["user_template"].format(
                         intent=intent,
                         trajectory=self._format_trajectory_for_prompt(trajectory),
                         current_url=self._get_current_url(trajectory),
                         text_observation=trajectory[-1]["observation"].get("text", "No text observation"),
-                        thought=self._extract_thoughts_from_response(action.get("raw_prediction", "")).get("thought", ""),
-                        action=self._extract_action_from_backticks(action.get("raw_prediction", str(action)))
+                        thought=thought_text,
+                        action=action_text
                     )
                     api_input = build_api_input_for_text(self.reward_lm_config, system_text, user_text)
                 else:
@@ -431,7 +446,8 @@ class RewardGuidedAgent(Agent):
                         reward_prompt,
                     )
                 response = call_llm(self.reward_lm_config, api_input)
-                self.logger.debug("=== REWARD MODEL RESPONSE (attempt %d) ===\n%s", attempt, response)
+                # Avoid logging raw response to prevent duplicate 'SCORE: X' lines
+                self.logger.debug("=== REWARD MODEL RESPONSE (attempt %d) ===", attempt)
 
                 score_match = re.search(r'SCORE:\s*([1-5])', response)
                 if score_match:

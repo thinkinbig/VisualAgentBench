@@ -1,1 +1,0 @@
-from .construct_messages import get_messages
