@@ -33,3 +33,5 @@ data/.env
 **/.env
 data/WebPRMCollection_preference_pair_8k_test.json
 !analysis/notebooks/*.ipynb
+
+data
