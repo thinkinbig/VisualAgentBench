@@ -34,7 +34,7 @@
     "intent_template_id": 279,
     "old_task_id": 4,
     "sources": [
-      "script_agent"
+      "webpilot"
     ]
   },
   {
@@ -71,7 +71,7 @@
     "intent_template_id": 79,
     "old_task_id": 7,
     "sources": [
-      "script_agent"
+      "webpilot"
     ]
   },
   {
@@ -108,7 +108,7 @@
     "intent_template_id": 73,
     "old_task_id": 20,
     "sources": [
-      "script_agent"
+      "webpilot"
     ]
   },
   {
@@ -143,7 +143,7 @@
     "intent_template_id": 33,
     "old_task_id": 27,
     "sources": [
-      "script_agent"
+      "webpilot"
     ]
   },
   {
@@ -180,7 +180,7 @@
     "old_task_id": 37,
     "sources": [
       "webpilot",
-      "script_agent"
+      "webarena"
     ]
   },
   {
@@ -217,7 +217,7 @@
     "intent_template_id": 285,
     "old_task_id": 43,
     "sources": [
-      "script_agent"
+      "webpilot"
     ]
   },
   {
@@ -246,7 +246,7 @@
     "old_task_id": 44,
     "sources": [
       "webpilot",
-      "script_agent"
+      "webarena"
     ]
   },
   {
@@ -283,7 +283,7 @@
     "old_task_id": 48,
     "sources": [
       "webpilot",
-      "script_agent"
+      "webarena"
     ]
   },
   {
@@ -319,7 +319,7 @@
     "intent_template_id": 69,
     "old_task_id": 58,
     "sources": [
-      "script_agent"
+      "webpilot"
     ]
   },
   {
@@ -356,7 +356,7 @@
     "intent_template_id": 17,
     "old_task_id": 69,
     "sources": [
-      "script_agent"
+      "webpilot"
     ]
   },
   {
@@ -392,7 +392,7 @@
     "old_task_id": 71,
     "sources": [
       "webpilot",
-      "script_agent"
+      "webarena"
     ]
   },
   {
@@ -431,7 +431,7 @@
     "intent_template_id": 65,
     "old_task_id": 75,
     "sources": [
-      "script_agent"
+      "webpilot"
     ]
   },
   {
@@ -467,7 +467,7 @@
     "old_task_id": 77,
     "sources": [
       "webpilot",
-      "script_agent"
+      "webarena"
     ]
   },
   {
@@ -504,7 +504,7 @@
     "intent_template_id": 72,
     "old_task_id": 82,
     "sources": [
-      "script_agent"
+      "webpilot"
     ]
   },
   {
@@ -541,7 +541,7 @@
     "old_task_id": 88,
     "sources": [
       "webpilot",
-      "script_agent"
+      "webarena"
     ]
   },
   {
@@ -579,7 +579,7 @@
     "old_task_id": 93,
     "sources": [
       "webpilot",
-      "script_agent"
+      "webarena"
     ]
   },
   {
@@ -615,7 +615,7 @@
     "old_task_id": 95,
     "sources": [
       "webpilot",
-      "script_agent"
+      "webarena"
     ]
   },
   {
@@ -648,7 +648,8 @@
     "intent_template_id": 193,
     "old_task_id": 96,
     "sources": [
-      "webpilot"
+      "webpilot",
+      "webarena"
     ]
   },
   {
@@ -682,7 +683,7 @@
     "intent_template_id": 120,
     "old_task_id": 97,
     "sources": [
-      "script_agent"
+      "webpilot"
     ]
   },
   {
@@ -715,7 +716,7 @@
     "intent_template_id": 245,
     "old_task_id": 115,
     "sources": [
-      "script_agent"
+      "webpilot"
     ]
   },
   {
@@ -753,7 +754,8 @@
     "intent_template_id": 151,
     "old_task_id": 118,
     "sources": [
-      "webpilot"
+      "webpilot",
+      "webarena"
     ]
   },
   {
@@ -786,7 +788,7 @@
     "intent_template_id": 1001,
     "old_task_id": 127,
     "sources": [
-      "script_agent"
+      "webpilot"
     ]
   },
   {
@@ -821,7 +823,7 @@
     "intent_template_id": 1002,
     "old_task_id": 131,
     "sources": [
-      "script_agent"
+      "webpilot"
     ]
   },
   {
@@ -858,7 +860,8 @@
     "intent_template_id": 322,
     "old_task_id": 135,
     "sources": [
-      "webpilot"
+      "webpilot",
+      "webarena"
     ]
   },
   {
@@ -895,7 +898,7 @@
     "old_task_id": 139,
     "sources": [
       "webpilot",
-      "script_agent"
+      "webarena"
     ]
   },
   {
@@ -931,7 +934,7 @@
     "intent_template_id": 162,
     "old_task_id": 144,
     "sources": [
-      "script_agent"
+      "webpilot"
     ]
   },
   {
@@ -968,7 +971,7 @@
     "old_task_id": 155,
     "sources": [
       "webpilot",
-      "script_agent"
+      "webarena"
     ]
   },
   {
@@ -997,7 +1000,7 @@
     "old_task_id": 156,
     "sources": [
       "webpilot",
-      "script_agent"
+      "webarena"
     ]
   },
   {
@@ -1026,7 +1029,7 @@
     "old_task_id": 157,
     "sources": [
       "webpilot",
-      "script_agent"
+      "webarena"
     ]
   },
   {
@@ -1062,7 +1065,7 @@
     "intent_template_id": 289,
     "old_task_id": 169,
     "sources": [
-      "script_agent"
+      "webpilot"
     ]
   },
   {
@@ -1099,7 +1102,8 @@
     "intent_template_id": 310,
     "old_task_id": 173,
     "sources": [
-      "webpilot"
+      "webpilot",
+      "webarena"
     ]
   },
   {
@@ -1133,7 +1137,8 @@
     "intent_template_id": 500,
     "old_task_id": 182,
     "sources": [
-      "webpilot"
+      "webpilot",
+      "webarena"
     ]
   },
   {
@@ -1169,7 +1174,7 @@
     "old_task_id": 190,
     "sources": [
       "webpilot",
-      "script_agent"
+      "webarena"
     ]
   },
   {
@@ -1206,7 +1211,7 @@
     "intent_template_id": 367,
     "old_task_id": 196,
     "sources": [
-      "script_agent"
+      "webpilot"
     ]
   },
   {
@@ -1243,7 +1248,7 @@
     "old_task_id": 202,
     "sources": [
       "webpilot",
-      "script_agent"
+      "webarena"
     ]
   },
   {
@@ -1280,7 +1285,7 @@
     "old_task_id": 205,
     "sources": [
       "webpilot",
-      "script_agent"
+      "webarena"
     ]
   },
   {
@@ -1317,7 +1322,7 @@
     "old_task_id": 211,
     "sources": [
       "webpilot",
-      "script_agent"
+      "webarena"
     ]
   },
   {
@@ -1353,7 +1358,7 @@
     "intent_template_id": 135,
     "old_task_id": 225,
     "sources": [
-      "script_agent"
+      "webpilot"
     ]
   },
   {
@@ -1389,7 +1394,7 @@
     "old_task_id": 227,
     "sources": [
       "webpilot",
-      "script_agent"
+      "webarena"
     ]
   },
   {
@@ -1424,7 +1429,7 @@
     "intent_template_id": 213,
     "old_task_id": 235,
     "sources": [
-      "script_agent"
+      "webpilot"
     ]
   },
   {
@@ -1461,7 +1466,7 @@
     "old_task_id": 250,
     "sources": [
       "webpilot",
-      "script_agent"
+      "webarena"
     ]
   },
   {
@@ -1490,7 +1495,7 @@
     "old_task_id": 258,
     "sources": [
       "webpilot",
-      "script_agent"
+      "webarena"
     ]
   },
   {
@@ -1523,7 +1528,7 @@
     "intent_template_id": 312,
     "old_task_id": 259,
     "sources": [
-      "script_agent"
+      "webpilot"
     ]
   },
   {
@@ -1562,7 +1567,7 @@
     "intent_template_id": 85,
     "old_task_id": 268,
     "sources": [
-      "script_agent"
+      "webpilot"
     ]
   },
   {
@@ -1593,7 +1598,7 @@
     "old_task_id": 276,
     "sources": [
       "webpilot",
-      "script_agent"
+      "webarena"
     ]
   },
   {
@@ -1621,7 +1626,7 @@
     "intent_template_id": 210,
     "old_task_id": 283,
     "sources": [
-      "script_agent"
+      "webpilot"
     ]
   },
   {
@@ -1652,7 +1657,7 @@
     "intent_template_id": 207,
     "old_task_id": 285,
     "sources": [
-      "script_agent"
+      "webpilot"
     ]
   },
   {
@@ -1686,7 +1691,7 @@
     "old_task_id": 287,
     "sources": [
       "webpilot",
-      "script_agent"
+      "webarena"
     ]
   },
   {
@@ -1717,7 +1722,7 @@
     "old_task_id": 300,
     "sources": [
       "webpilot",
-      "script_agent"
+      "webarena"
     ]
   },
   {
@@ -1741,19 +1746,19 @@
       ],
       "reference_answers": {
         "must_include": [
-          "Erik Linder-Nor\u00e9n"
+          "Erik Linder-Norén"
         ]
       },
       "reference_url": "",
       "program_html": [],
       "string_note": "",
-      "reference_answer_raw_annotation": "Erik Linder-Nor\u00e9n"
+      "reference_answer_raw_annotation": "Erik Linder-Norén"
     },
     "intent_template_id": 323,
     "old_task_id": 311,
     "sources": [
       "webpilot",
-      "script_agent"
+      "webarena"
     ]
   },
   {
@@ -1784,7 +1789,7 @@
     "intent_template_id": 134,
     "old_task_id": 313,
     "sources": [
-      "script_agent"
+      "webpilot"
     ]
   },
   {
@@ -1822,7 +1827,8 @@
     "intent_template_id": 324,
     "old_task_id": 318,
     "sources": [
-      "webpilot"
+      "webpilot",
+      "webarena"
     ]
   },
   {
@@ -1853,7 +1859,7 @@
     "intent_template_id": 208,
     "old_task_id": 324,
     "sources": [
-      "script_agent"
+      "webpilot"
     ]
   },
   {
@@ -1889,7 +1895,7 @@
     "old_task_id": 348,
     "sources": [
       "webpilot",
-      "script_agent"
+      "webarena"
     ]
   },
   {
@@ -1922,7 +1928,7 @@
     "intent_template_id": 298,
     "old_task_id": 349,
     "sources": [
-      "script_agent"
+      "webpilot"
     ]
   },
   {
@@ -1953,7 +1959,7 @@
     "intent_template_id": 137,
     "old_task_id": 354,
     "sources": [
-      "script_agent"
+      "webpilot"
     ]
   },
   {
@@ -1982,7 +1988,7 @@
     "old_task_id": 357,
     "sources": [
       "webpilot",
-      "script_agent"
+      "webarena"
     ]
   },
   {
@@ -2020,7 +2026,7 @@
     "old_task_id": 361,
     "sources": [
       "webpilot",
-      "script_agent"
+      "webarena"
     ]
   },
   {
@@ -2056,7 +2062,7 @@
     "intent_template_id": 58,
     "old_task_id": 367,
     "sources": [
-      "script_agent"
+      "webpilot"
     ]
   },
   {
@@ -2095,7 +2101,7 @@
     "intent_template_id": 52,
     "old_task_id": 369,
     "sources": [
-      "script_agent"
+      "webpilot"
     ]
   },
   {
@@ -2126,7 +2132,7 @@
     "old_task_id": 374,
     "sources": [
       "webpilot",
-      "script_agent"
+      "webarena"
     ]
   },
   {
@@ -2151,7 +2157,7 @@
       "reference_answers": {
         "fuzzy_match": [
           "Serena: It was the exact same one that came with my echo show that my puppy",
-          "Amazon Customer: It doesn\u2019t work .",
+          "Amazon Customer: It doesn’t work .",
           "BlessedGirl: Great replacement for Echo Dot.",
           "Jeff Sederquist: Great product no issues. It's for a Echo show 5",
           "melvin m.: Very good charger but I had to buy this one because when I bought an echo show 5, I came with an echo show 10 charger in the package with the device",
@@ -2168,7 +2174,7 @@
     "intent_template_id": 182,
     "old_task_id": 376,
     "sources": [
-      "script_agent"
+      "webpilot"
     ]
   },
   {
@@ -2200,7 +2206,7 @@
     "old_task_id": 381,
     "sources": [
       "webpilot",
-      "script_agent"
+      "webarena"
     ]
   },
   {
@@ -2235,7 +2241,7 @@
     "intent_template_id": 782,
     "old_task_id": 383,
     "sources": [
-      "script_agent"
+      "webpilot"
     ]
   },
   {
@@ -2271,7 +2277,7 @@
     "intent_template_id": 666,
     "old_task_id": 384,
     "sources": [
-      "script_agent"
+      "webpilot"
     ]
   },
   {
@@ -2310,7 +2316,7 @@
     "intent_template_id": 348,
     "old_task_id": 392,
     "sources": [
-      "script_agent"
+      "webpilot"
     ]
   },
   {
@@ -2348,7 +2354,7 @@
     "old_task_id": 401,
     "sources": [
       "webpilot",
-      "script_agent"
+      "webarena"
     ]
   },
   {
@@ -2388,7 +2394,7 @@
     "old_task_id": 404,
     "sources": [
       "webpilot",
-      "script_agent"
+      "webarena"
     ]
   },
   {
@@ -2426,7 +2432,7 @@
     "old_task_id": 419,
     "sources": [
       "webpilot",
-      "script_agent"
+      "webarena"
     ]
   },
   {
@@ -2463,7 +2469,7 @@
     "intent_template_id": 237,
     "old_task_id": 423,
     "sources": [
-      "script_agent"
+      "webpilot"
     ]
   },
   {
@@ -2503,7 +2509,7 @@
     "intent_template_id": 371,
     "old_task_id": 426,
     "sources": [
-      "script_agent"
+      "webpilot"
     ]
   },
   {
@@ -2540,7 +2546,7 @@
     "intent_template_id": 145,
     "old_task_id": 431,
     "sources": [
-      "script_agent"
+      "webpilot"
     ]
   },
   {
@@ -2578,7 +2584,7 @@
     "old_task_id": 448,
     "sources": [
       "webpilot",
-      "script_agent"
+      "webarena"
     ]
   },
   {
@@ -2615,7 +2621,7 @@
     "intent_template_id": 242,
     "old_task_id": 454,
     "sources": [
-      "script_agent"
+      "webpilot"
     ]
   },
   {
@@ -2653,7 +2659,7 @@
     "intent_template_id": 247,
     "old_task_id": 458,
     "sources": [
-      "script_agent"
+      "webpilot"
     ]
   },
   {
@@ -2693,7 +2699,7 @@
     "old_task_id": 466,
     "sources": [
       "webpilot",
-      "script_agent"
+      "webarena"
     ]
   },
   {
@@ -2731,7 +2737,7 @@
     "old_task_id": 470,
     "sources": [
       "webpilot",
-      "script_agent"
+      "webarena"
     ]
   },
   {
@@ -2771,7 +2777,7 @@
     "old_task_id": 476,
     "sources": [
       "webpilot",
-      "script_agent"
+      "webarena"
     ]
   },
   {
@@ -2811,7 +2817,7 @@
     "old_task_id": 485,
     "sources": [
       "webpilot",
-      "script_agent"
+      "webarena"
     ]
   },
   {
@@ -2850,7 +2856,7 @@
     "old_task_id": 488,
     "sources": [
       "webpilot",
-      "script_agent"
+      "webarena"
     ]
   },
   {
@@ -2891,7 +2897,7 @@
     "intent_template_id": 284,
     "old_task_id": 497,
     "sources": [
-      "script_agent"
+      "webpilot"
     ]
   },
   {
@@ -2932,7 +2938,7 @@
     "old_task_id": 514,
     "sources": [
       "webpilot",
-      "script_agent"
+      "webarena"
     ]
   },
   {
@@ -2970,7 +2976,7 @@
     "old_task_id": 516,
     "sources": [
       "webpilot",
-      "script_agent"
+      "webarena"
     ]
   },
   {
@@ -3005,7 +3011,8 @@
     "intent_template_id": 199,
     "old_task_id": 521,
     "sources": [
-      "webpilot"
+      "webpilot",
+      "webarena"
     ]
   },
   {
@@ -3020,12 +3027,12 @@
     "intent_template": "Follow {{account_list}} on Gitlab",
     "instantiation_dict": {
       "account_list": [
-        "Jakub Klinkovsk\u00fd",
+        "Jakub Klinkovský",
         "Koushik",
         "Vinta Chen"
       ]
     },
-    "intent": "Follow ['Jakub Klinkovsk\u00fd', 'Koushik', 'Vinta Chen'] on Gitlab",
+    "intent": "Follow ['Jakub Klinkovský', 'Koushik', 'Vinta Chen'] on Gitlab",
     "require_reset": false,
     "eval": {
       "eval_types": [
@@ -3051,7 +3058,7 @@
     "old_task_id": 534,
     "sources": [
       "webpilot",
-      "script_agent"
+      "webarena"
     ]
   },
   {
@@ -3093,7 +3100,7 @@
     "intent_template_id": 240,
     "old_task_id": 538,
     "sources": [
-      "script_agent"
+      "webpilot"
     ]
   },
   {
@@ -3136,7 +3143,7 @@
     "intent_template_id": 252,
     "old_task_id": 548,
     "sources": [
-      "script_agent"
+      "webpilot"
     ]
   },
   {
@@ -3150,10 +3157,10 @@
     "geolocation": null,
     "intent_template": "Invite {{collaborator_account_list}} as collaborator to {{repo}} repo",
     "instantiation_dict": {
-      "collaborator_account_list": "Jakub Klinkovsk\u00fd and Beno\u00eet Blanchon",
+      "collaborator_account_list": "Jakub Klinkovský and Benoît Blanchon",
       "repo": "gimmiethat.space"
     },
-    "intent": "Invite Jakub Klinkovsk\u00fd and Beno\u00eet Blanchon as collaborator to gimmiethat.space repo",
+    "intent": "Invite Jakub Klinkovský and Benoît Blanchon as collaborator to gimmiethat.space repo",
     "require_reset": false,
     "eval": {
       "eval_types": [
@@ -3177,7 +3184,7 @@
     "intent_template_id": 293,
     "old_task_id": 567,
     "sources": [
-      "script_agent"
+      "webpilot"
     ]
   },
   {
@@ -3227,7 +3234,7 @@
     "intent_template_id": 165,
     "old_task_id": 574,
     "sources": [
-      "script_agent"
+      "webpilot"
     ]
   },
   {
@@ -3286,7 +3293,7 @@
     "old_task_id": 582,
     "sources": [
       "webpilot",
-      "script_agent"
+      "webarena"
     ]
   },
   {
@@ -3328,7 +3335,7 @@
     "old_task_id": 599,
     "sources": [
       "webpilot",
-      "script_agent"
+      "webarena"
     ]
   },
   {
@@ -3370,7 +3377,7 @@
     "old_task_id": 601,
     "sources": [
       "webpilot",
-      "script_agent"
+      "webarena"
     ]
   },
   {
@@ -3413,7 +3420,7 @@
     "old_task_id": 605,
     "sources": [
       "webpilot",
-      "script_agent"
+      "webarena"
     ]
   },
   {
@@ -3457,7 +3464,7 @@
     "old_task_id": 612,
     "sources": [
       "webpilot",
-      "script_agent"
+      "webarena"
     ]
   },
   {
@@ -3508,7 +3515,7 @@
     "intent_template_id": 11,
     "old_task_id": 619,
     "sources": [
-      "script_agent"
+      "webpilot"
     ]
   },
   {
@@ -3551,7 +3558,7 @@
     "old_task_id": 626,
     "sources": [
       "webpilot",
-      "script_agent"
+      "webarena"
     ]
   },
   {
@@ -3597,7 +3604,7 @@
     "old_task_id": 631,
     "sources": [
       "webpilot",
-      "script_agent"
+      "webarena"
     ]
   },
   {
@@ -3643,7 +3650,7 @@
     "old_task_id": 641,
     "sources": [
       "webpilot",
-      "script_agent"
+      "webarena"
     ]
   },
   {
@@ -3686,7 +3693,7 @@
     "old_task_id": 645,
     "sources": [
       "webpilot",
-      "script_agent"
+      "webarena"
     ]
   },
   {
@@ -3727,7 +3734,7 @@
     "old_task_id": 652,
     "sources": [
       "webpilot",
-      "script_agent"
+      "webarena"
     ]
   },
   {
@@ -3768,7 +3775,7 @@
     "intent_template_id": 253,
     "old_task_id": 678,
     "sources": [
-      "script_agent"
+      "webpilot"
     ]
   },
   {
@@ -3798,7 +3805,8 @@
     "intent_template_id": 163,
     "old_task_id": 693,
     "sources": [
-      "webpilot"
+      "webpilot",
+      "webarena"
     ]
   },
   {
@@ -3846,7 +3854,7 @@
     "old_task_id": 704,
     "sources": [
       "webpilot",
-      "script_agent"
+      "webarena"
     ]
   },
   {
@@ -3895,7 +3903,7 @@
     "old_task_id": 710,
     "sources": [
       "webpilot",
-      "script_agent"
+      "webarena"
     ]
   },
   {
@@ -3936,7 +3944,7 @@
     "old_task_id": 714,
     "sources": [
       "webpilot",
-      "script_agent"
+      "webarena"
     ]
   },
   {
@@ -3976,7 +3984,7 @@
     "intent_template_id": 1510,
     "old_task_id": 729,
     "sources": [
-      "script_agent"
+      "webpilot"
     ]
   },
   {
@@ -4015,7 +4023,7 @@
     "old_task_id": 733,
     "sources": [
       "webpilot",
-      "script_agent"
+      "webarena"
     ]
   },
   {
@@ -4076,7 +4084,7 @@
     "intent_template_id": 94,
     "old_task_id": 741,
     "sources": [
-      "script_agent"
+      "webpilot"
     ]
   },
   {
@@ -4127,7 +4135,7 @@
     "intent_template_id": 332,
     "old_task_id": 745,
     "sources": [
-      "script_agent"
+      "webpilot"
     ]
   },
   {
@@ -4185,7 +4193,7 @@
     "intent_template_id": 42,
     "old_task_id": 760,
     "sources": [
-      "script_agent"
+      "webpilot"
     ]
   },
   {
@@ -4246,7 +4254,7 @@
     "intent_template_id": 54,
     "old_task_id": 762,
     "sources": [
-      "script_agent"
+      "webpilot"
     ]
   },
   {
@@ -4291,7 +4299,7 @@
     "intent_template_id": 241,
     "old_task_id": 768,
     "sources": [
-      "script_agent"
+      "webpilot"
     ]
   },
   {
@@ -4326,7 +4334,7 @@
     "intent_template_id": 191,
     "old_task_id": 798,
     "sources": [
-      "script_agent"
+      "webpilot"
     ]
   },
   {
@@ -4386,7 +4394,7 @@
     "intent_template_id": 327,
     "old_task_id": 809,
     "sources": [
-      "script_agent"
+      "webpilot"
     ]
   },
   {
@@ -4427,7 +4435,7 @@
     "intent_template_id": 999,
     "old_task_id": 811,
     "sources": [
-      "script_agent"
+      "webpilot"
     ]
   }
 ]
