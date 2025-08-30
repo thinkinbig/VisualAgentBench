@@ -44,6 +44,7 @@ def load_env_from_dotenv() -> None:
 load_env_from_dotenv()
 
 from agent import construct_agent
+from typing import Dict
 from browser_env import (
     ScriptBrowserEnv,
     ActionTypes,
@@ -83,8 +84,8 @@ def config() -> argparse.Namespace:
     parser.add_argument(
         "--test_config_file",
         type=str,
-        required=True,
-        help="Path to test configuration file"
+        default=None,
+        help="Path to single test configuration file (if omitted, use --task_id from --task_pool)"
     )
     parser.add_argument(
         "--render",
@@ -110,6 +111,18 @@ def config() -> argparse.Namespace:
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
         help="Logging level"
     )
+    parser.add_argument(
+        "--task_id",
+        type=int,
+        default=0,
+        help="Task ID to select from task pool when --test_config_file is not provided"
+    )
+    parser.add_argument(
+        "--task_pool",
+        type=str,
+        default=str(SCRIPT_DIR / "config_files/wa/test_webarena_lite_webpilot.raw.json"),
+        help="Path to a task pool JSON (list of tasks) to select by --task_id"
+    )
     
     return parser.parse_args()
 
@@ -125,12 +138,73 @@ def main() -> None:
         h.setLevel(level)
 
     # Load test configuration
-    if not Path(args.test_config_file).exists():
-        logger.error(f"Test config file not found: {args.test_config_file}")
-        return
-        
-    with open(args.test_config_file, "r") as f:
-        test_config = json.load(f)
+    selected_config_file: Path | None = None
+    test_config: dict
+    if args.test_config_file:
+        if not Path(args.test_config_file).exists():
+            logger.error(f"Test config file not found: {args.test_config_file}")
+            return
+        selected_config_file = Path(args.test_config_file)
+        with open(selected_config_file, "r") as f:
+            test_config = json.load(f)
+    else:
+        pool_path = Path(args.task_pool)
+        if not pool_path.exists():
+            logger.error(f"Task pool file not found: {pool_path}")
+            return
+        try:
+            pool = json.loads(pool_path.read_text())
+        except Exception as e:
+            logger.error(f"Failed to read task pool: {e}")
+            return
+        matched = None
+        for item in pool:
+            try:
+                if int(item.get("task_id")) == int(args.task_id):
+                    matched = item
+                    break
+            except Exception:
+                continue
+        if matched is None:
+            logger.error(f"Task id {args.task_id} not found in pool {pool_path}")
+            return
+        # If storage_state path is provided but missing, null it to avoid login dependency
+        storage_state = matched.get("storage_state")
+        if storage_state and not Path(storage_state).exists():
+            matched["storage_state"] = None
+        # Materialize to a temp single-task config file
+        out_dir = SCRIPT_DIR / "config_files/wa"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        selected_config_file = out_dir / f"auto_task_{args.task_id}.json"
+        test_config = matched
+    
+    # Resolve placeholder start_url like "__SHOPPING_ADMIN__" to actual URL
+    try:
+        placeholder_map: Dict[str, str] = {
+            "__SHOPPING_ADMIN__": "http://localhost:7780/admin",
+            "__SHOPPING__": "http://localhost:7770",
+            "__REDDIT__": "http://reddit.com",
+            "__GITLAB__": "http://gitlab.com",
+            "__WIKIPEDIA__": "http://wikipedia.org",
+            "__MAP__": "http://openstreetmap.org",
+            "__HOMEPAGE__": "http://homepage.com",
+        }
+        su = test_config.get("start_url")
+        if isinstance(su, str) and su:
+            parts = [p.strip() for p in su.split("|AND|")]
+            resolved_parts = [placeholder_map.get(p.strip(), p.strip()) for p in parts]
+            resolved = " |AND| ".join(resolved_parts)
+            test_config["start_url"] = resolved
+    except Exception:
+        pass
+    
+    # Persist possibly-updated config for environment consumption
+    try:
+        if selected_config_file is None:
+            selected_config_file = SCRIPT_DIR / "config_files/wa/auto_task_runtime.json"
+        selected_config_file.write_text(json.dumps(test_config, indent=2))
+    except Exception:
+        pass
     
     # Extract task information
     task_name = f"Task {test_config.get('task_id', 'Unknown')}"
@@ -143,9 +217,9 @@ def main() -> None:
     if start_url:
         logger.info(f"Start URL: {start_url}")
 
-    # Load agent configuration from file
-    config_path = "configs/reward_guided_agent.json"
-    if not Path(config_path).exists():
+    # Load agent configuration from file (relative to script dir)
+    config_path = SCRIPT_DIR / "configs/reward_guided_agent.json"
+    if not config_path.exists():
         logger.error(f"Agent config file not found: {config_path}")
         return
         
@@ -156,7 +230,7 @@ def main() -> None:
     from types import SimpleNamespace
     agent_args = SimpleNamespace(
         agent_type="reward_guided",
-        instruction_path=config_path,
+        instruction_path=str(config_path),
         provider="openai",  # Default provider, will be overridden by config
         model="gpt-4o-mini",  # Default model, will be overridden by config
         mode="chat",
@@ -191,7 +265,7 @@ def main() -> None:
 
     # Reset agent if needed
     if hasattr(agent, 'reset'):
-        agent.reset(args.test_config_file)
+        agent.reset(str(selected_config_file))
     
     # Create browser environment
     env = ScriptBrowserEnv(
@@ -208,14 +282,14 @@ def main() -> None:
 
     try:
         # Reset environment
-        obs, info = env.reset(options={"config_file": args.test_config_file})
+        obs, info = env.reset(options={"config_file": str(selected_config_file)})
         state_info: StateInfo = {"observation": obs, "info": info}
         trajectory: Trajectory = [state_info]
         meta_data["action_history"] = ["None"]
 
         step_idx = 0
         while step_idx < args.max_steps:
-            logger.info(f"=== Step {step_idx + 1} ===")
+            logger.debug(f"=== Action Step {step_idx + 1} ===")
             
             # Generate next action
             try:

@@ -3,7 +3,6 @@ import re
 import json
 import os
 from typing import Any, Optional, List, Dict, Tuple
-from PIL import Image
 
 from beartype import beartype
 from llms.utils import build_api_input_for_text, call_llm
@@ -17,6 +16,7 @@ from browser_env.actions import (
     create_playwright_action,
     create_webrl_id_based_action,
 )
+from browser_env.actions import is_equivalent
 from llms import lm_config
 
 
@@ -184,6 +184,80 @@ class RewardGuidedAgent(Agent):
             return action_name
         except Exception:
             return str(action)
+
+    def _is_valid_action(self, action: Action) -> bool:
+        """Lightweight validity checks to filter unusable actions before scoring/dedup."""
+        try:
+            action_type = action.get("action_type")
+            if action_type is None:
+                return False
+
+            # Always valid or no-op
+            if action_type in (
+                ActionTypes.NONE,
+                ActionTypes.NEW_TAB,
+                ActionTypes.GO_BACK,
+                ActionTypes.GO_FORWARD,
+                ActionTypes.PAGE_CLOSE,
+            ):
+                return True
+
+            if action_type == ActionTypes.SCROLL:
+                direction = (action.get("direction") or "").lower()
+                return direction in {"up", "down"}
+
+            if action_type == ActionTypes.KEY_PRESS:
+                key_comb = action.get("key_comb") or ""
+                return len(key_comb.strip()) > 0
+
+            if action_type == ActionTypes.MOUSE_CLICK:
+                coords = action.get("coords")
+                try:
+                    return coords is not None and len(coords) == 2
+                except Exception:
+                    return False
+
+            if action_type == ActionTypes.KEYBOARD_TYPE:
+                text = action.get("text")
+                return bool(text)
+
+            if action_type in (ActionTypes.CLICK, ActionTypes.HOVER, ActionTypes.TYPE):
+                has_id = bool(action.get("element_id"))
+                has_role_name = bool(action.get("element_role")) and bool(action.get("element_name"))
+                has_pw = bool(action.get("pw_code"))
+                if action_type == ActionTypes.TYPE and not action.get("text"):
+                    return False
+                return has_id or has_role_name or has_pw
+
+            if action_type == ActionTypes.PAGE_FOCUS:
+                try:
+                    return int(action.get("page_number", -1)) >= 0
+                except Exception:
+                    return False
+
+            if action_type == ActionTypes.GOTO_URL:
+                url = action.get("url") or ""
+                return url.startswith("http://") or url.startswith("https://")
+
+            if action_type == ActionTypes.CHECK:
+                return bool(action.get("pw_code"))
+
+            if action_type == ActionTypes.STOP:
+                return True
+
+            if action_type == ActionTypes.SEND_MESSAGE_TO_USER:
+                message = action.get("answer", "")
+                return isinstance(message, str) and len(message) > 0
+
+            # WebRL-specific
+            if action_type == ActionTypes.SEARCH:
+                return bool(action.get("element_id")) and bool(action.get("text"))
+            if action_type == ActionTypes.SELECT_DROPDOWN_OPTION:
+                return bool(action.get("element_id")) and bool(action.get("argument"))
+
+            return True
+        except Exception:
+            return False
     
     def _update_discovery_context(self, action: Action, thoughts: Dict) -> None:
         """Update discovery context with thoughts from send_msg_to_user actions"""
@@ -225,31 +299,16 @@ class RewardGuidedAgent(Agent):
         trajectory: Trajectory, 
         intent: str, 
         meta_data: dict[str, Any], 
-        images: Optional[List[Image.Image]] = None
+        images: Optional[List[Any]] = None
     ) -> List[Tuple[str, Action]]:
         """Generate action candidates using nucleus sampling"""
         candidates = []
-        self.logger.info("Generating action candidates (num_samples=%d)", self.num_samples)
+        self.logger.debug("Generating action candidates (num_samples=%d)", self.num_samples)
         
-        # Create page screenshot image for multimodal models
-        if self.multimodal_inputs:
-            page_screenshot_arr = trajectory[-1]["observation"]["image"]
-            page_screenshot_img = Image.fromarray(page_screenshot_arr)
+        # Note: no image processing; only pass through to optional captioner when provided
         
         # Caption the input image, if provided
-        if images is not None and len(images) > 0:
-            if self.captioning_fn is not None:
-                image_input_caption = ""
-                for image_i, image in enumerate(images):
-                    if image_i == 0:
-                        image_input_caption += f'Input image {image_i+1}: "{self.captioning_fn([image])[0]}"'
-                    else:
-                        image_input_caption += f'input image {image_i+1}: "{self.captioning_fn([image])[0]}"'
-                    if len(images) > 1:
-                        image_input_caption += ", "
-                intent = f"{image_input_caption}\nIntent: {intent}"
-            elif not self.multimodal_inputs:
-                print("WARNING: Input image provided but no image captioner available.")
+        # Image inputs are intentionally ignored (no image support required)
         
         # Add discovery context to intent if available
         discovery_context_str = self._get_discovery_context_string()
@@ -300,7 +359,7 @@ class RewardGuidedAgent(Agent):
                                     except Exception:
                                         action_str = str(step)
                                 trajectory_entries.append(
-                                    f"## Trajectory {{THOUGHT: {thought_text}, ACTION: {action_str}}}"
+                                    f"{{THOUGHT: {thought_text}, ACTION: {action_str}}}"
                                 )
                     except Exception:
                         pass
@@ -622,14 +681,14 @@ class RewardGuidedAgent(Agent):
         trajectory: Trajectory, 
         intent: str, 
         meta_data: dict[str, Any], 
-        images: Optional[List[Image.Image]] = None,
+        images: Optional[List[Any]] = None,
         output_response: bool = False
     ) -> Action:
         """Generate next action using reward-guided trajectory search"""
         
         # Step 1: Generate action candidates using nucleus sampling
         candidates = self._generate_action_candidates(trajectory, intent, meta_data, images)
-        self.logger.info("Generated %d candidate actions", len(candidates))
+        self.logger.debug("Generated %d candidate actions", len(candidates))
         
         if not candidates:
             # Fallback to default action
@@ -637,25 +696,30 @@ class RewardGuidedAgent(Agent):
             action["raw_prediction"] = "Failed to generate candidates"
             return action
         
-        # Step 2: Count action frequencies and select top candidates
-        action_counts = {}
-        for response, action in candidates:
-            action_key = str(action)
-            if action_key in action_counts:
-                action_counts[action_key].append((response, action))
-            else:
-                action_counts[action_key] = [(response, action)]
-        
-        # Sort by frequency and select top candidates
-        sorted_candidates = sorted(action_counts.items(), key=lambda x: len(x[1]), reverse=True)
-        top_candidates = []
-        for action_key, action_list in sorted_candidates[:3]:  # Top 3 most frequent for efficiency
-            # Use the first occurrence of each unique action
-            top_candidates.append(action_list[0])
-        self.logger.debug("Top %d unique candidates selected for scoring", len(top_candidates))
+        # Step 2: Validate and (for arena) keep ALL candidates even if actions are equivalent
+        valid_candidates: list[tuple[str, Action]] = [
+            (resp, act) for (resp, act) in candidates if self._is_valid_action(act)
+        ]
+        if len(valid_candidates) < len(candidates):
+            self.logger.info(
+                "Filtered %d invalid candidates", len(candidates) - len(valid_candidates)
+            )
+        top_candidates: list[tuple[str, Action]] = valid_candidates
         try:
-            unique_strs = [self._concise_action_string(a) for (_, a) in top_candidates]
-            self.logger.info("Unique actions to score (up to 3): %s", ", ".join(unique_strs))
+            cand_strs = [self._concise_action_string(a) for (_, a) in top_candidates]
+            # Derive current step: count actions already taken in trajectory + 1
+            try:
+                actions_so_far = sum(
+                    1
+                    for item in trajectory
+                    if isinstance(item, dict) and item.get("action_type") is not None
+                )
+                step_num = actions_so_far + 1
+            except Exception:
+                step_num = 1
+            self.logger.info(
+                "Step %d candidates to score (%d): %s", step_num, len(cand_strs), ", ".join(cand_strs)
+            )
         except Exception:
             pass
         

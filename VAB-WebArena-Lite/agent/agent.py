@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import time
 
 from beartype import beartype
-from PIL import Image
+from typing import Any
 from llms.utils import build_api_input_for_text, call_llm
 
 from agent.prompts import *
@@ -132,42 +132,13 @@ class PromptAgent(Agent):
 
     @beartype
     def next_action(
-        self, trajectory: Trajectory, intent: str, meta_data: dict[str, Any], images: Optional[list[Image.Image]] = None,
+        self, trajectory: Trajectory, intent: str, meta_data: dict[str, Any], images: Optional[list[Any]] = None,
         output_response: bool = False
     ) -> Action:
-        # Create page screenshot image for multimodal models.
-        if self.multimodal_inputs:
-            page_screenshot_arr = trajectory[-1]["observation"]["image"]
-            page_screenshot_img = Image.fromarray(
-                page_screenshot_arr
-            )  # size = (viewport_width, viewport_width)
-
-        # Caption the input image, if provided.
-        if images is not None and len(images) > 0:
-            if self.captioning_fn is not None:
-                image_input_caption = ""
-                for image_i, image in enumerate(images):
-                    if image_i == 0:
-                        image_input_caption += f'Input image {image_i+1}: "{self.captioning_fn([image])[0]}"'
-                    else:
-                        image_input_caption += f'input image {image_i+1}: "{self.captioning_fn([image])[0]}"'
-                    if len(images) > 1:
-                        image_input_caption += ", "
-                # Update intent to include captions of input images.
-                intent = f"{image_input_caption}\nIntent: {intent}"
-            elif not self.multimodal_inputs:
-                print(
-                    "WARNING: Input image provided but no image captioner available."
-                )
-
-        if self.multimodal_inputs:
-            prompt = self.prompt_constructor.construct(
-                trajectory, intent, page_screenshot_img, images, meta_data
-            )
-        else:
-            prompt = self.prompt_constructor.construct(
-                trajectory, intent, meta_data
-            )
+        # No image support: always construct prompt without images
+        prompt = self.prompt_constructor.construct(
+            trajectory, intent, meta_data
+        )
         lm_config = self.lm_config
         n = 0
         while True:
