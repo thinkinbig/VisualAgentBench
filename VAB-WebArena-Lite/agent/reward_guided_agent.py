@@ -87,16 +87,22 @@ class RewardGuidedAgent(Agent):
         try:
             if isinstance(meta_data.get("obs_nodes_info"), dict):
                 m.obs_nodes_info = meta_data.get("obs_nodes_info")
-            elif isinstance(meta_data.get("text"), dict) and isinstance(meta_data["text"].get("obs_nodes_info"), dict):
-                m.obs_nodes_info = meta_data["text"].get("obs_nodes_info")
-            elif isinstance(meta_data.get("image"), dict) and isinstance(meta_data["image"].get("obs_nodes_info"), dict):
-                m.obs_nodes_info = meta_data["image"].get("obs_nodes_info")
-            elif isinstance(meta_data.get("observation_metadata"), dict):
-                md = meta_data["observation_metadata"]
-                if isinstance(md.get("text"), dict) and isinstance(md["text"].get("obs_nodes_info"), dict):
-                    m.obs_nodes_info = md["text"].get("obs_nodes_info")
         except Exception:
             m.obs_nodes_info = None
+
+    def _compose_observation_from_nodes(self, nodes: Optional[Dict[str, Any]]) -> str:
+        """Compose observation string from structured node dict if available."""
+        if not isinstance(nodes, dict) or not nodes:
+            return ""
+        lines: List[str] = []
+        try:
+            for node_id, node in nodes.items():
+                t = str(node.get("text", ""))
+                if t:
+                    lines.append(t)
+        except Exception:
+            pass
+        return "\n".join(lines)
 
     # ---------------------------- Stage 1: Policy ----------------------------
     def _build_policy_request(self) -> PolicyRequest:
@@ -108,18 +114,15 @@ class RewardGuidedAgent(Agent):
             eid = self.runtime.previous_action.element_id or ""
             previous_action_text = f"{at}{f' [{eid}]' if eid else ''}"
 
-        trajectory_str = "\n".join(
-            [f"{{THOUGHT: {tap.thought}, ACTION: {tap.action}}}" for tap in m.trajectory]
-        )
+        # Compose observation text from structured nodes if available
+        observation_text = self._compose_observation_from_nodes(m.obs_nodes_info)
 
         req = PolicyRequest(
             intent=m.intent or "",
-            observation=m.observation or "",
-            trajectory=trajectory_str,
+            observation=observation_text,
             current_url=m.current_url or "",
             previous_action=previous_action_text,
-            start_url=m.start_url,
-            discovery_context=None,
+            start_url=m.start_url
         )
         self.runtime.policy_request = req
         return req
@@ -148,20 +151,8 @@ class RewardGuidedAgent(Agent):
             last_cp = self.runtime.last_checkpoint.dict(by_alias=True) if self.runtime.last_checkpoint else {}
             last_ag = self.runtime.last_aggregate.dict(by_alias=True) if self.runtime.last_aggregate else {}
             open_tabs = "[]"  # placeholder if not tracked
-            # Build observation text from structured nodes if available
-            observation_text = req.observation
-            nodes = self.runtime.meta.obs_nodes_info
-            if not observation_text and isinstance(nodes, dict):
-                try:
-                    lines: List[str] = []
-                    # Keep stable order
-                    for node_id, node in nodes.items():
-                        t = str(node.get("text", ""))
-                        if t:
-                            lines.append(t)
-                    observation_text = "\n".join(lines)
-                except Exception:
-                    observation_text = ""
+            # Observation text
+            observation_text = req.observation or self._compose_observation_from_nodes(self.runtime.meta.obs_nodes_info)
 
             user_text = template.format(
                 objective=req.intent,
@@ -198,7 +189,6 @@ class RewardGuidedAgent(Agent):
         nodes = self.runtime.meta.obs_nodes_info
         if isinstance(nodes, dict) and nodes:
             for node_id, node in nodes.items():
-                # node.get('text') like "[id] role 'name' ..." from processors
                 text = str(node.get("text", ""))
                 m = re.match(r"^\s*\[(?P<id>[-A-Za-z0-9_]+)\]\s+(?P<role>[A-Za-z]+)(?:\s+'(?P<name>[^']*)')?", text)
                 if m:
@@ -208,7 +198,7 @@ class RewardGuidedAgent(Agent):
                         "name": (m.group("name") or "").strip(),
                     })
         else:
-            elems = self._parse_ax_observation(req.observation)
+            elems = self._parse_ax_observation(req.observation or "")
         pool: List[str] = []
         clickable_roles = {"link", "button", "image", "img", "checkbox", "radio"}
         type_roles = {"input", "textbox", "searchbox", "textarea", "combobox"}
@@ -407,7 +397,6 @@ class RewardGuidedAgent(Agent):
         trajectory: Trajectory,
         intent: str,
         meta_data: Dict[str, Any],
-        images: Optional[List[Any]] = None,
         output_response: bool = False,
     ) -> Action:
         # Step 0: Update runtime/meta state

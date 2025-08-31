@@ -100,3 +100,13 @@ DOMTree = list[DOMNode]
 
 Observation = str | npt.NDArray[np.uint8]
 
+
+class StateInfo(TypedDict):
+    """State information passed between environment and agent.
+
+    - observation: modality-keyed observation (e.g., {"text": str, "image": np.ndarray})
+    - info: auxiliary data including page handle and observation metadata
+    """
+    observation: Dict[str, Observation]
+    info: Dict[str, Any]
+

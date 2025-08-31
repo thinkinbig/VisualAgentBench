@@ -3,7 +3,7 @@ import logging
 import time
 from typing import Any, Optional
 from .json_validator import JSONResponseValidator
-from .response_types import LLMResponse
+from .types import LLMResponse
 
 try:
     from vertexai.preview.generative_models import Image

@@ -50,7 +50,7 @@ from browser_env import (
     ActionTypes,
     Trajectory,
     StateInfo,
-    create_stop_action,
+    create_send_message_to_user_action,
 )
 from browser_env.helper_functions import get_action_description
 
@@ -263,10 +263,6 @@ def main() -> None:
         logger.error(f"Failed to initialize agent: {e}")
         return
 
-    # Reset agent if needed
-    if hasattr(agent, 'reset'):
-        agent.reset(str(selected_config_file))
-    
     # Create browser environment
     env = ScriptBrowserEnv(
         headless=not args.render,
@@ -284,7 +280,34 @@ def main() -> None:
         # Reset environment
         obs, info = env.reset(options={"config_file": str(selected_config_file)})
         state_info: StateInfo = {"observation": obs, "info": info}
-        trajectory: Trajectory = [state_info]
+        # ThoughtActionPair trajectory (not used yet); keep empty
+        trajectory: Trajectory = []
+        # Initialize runtime meta fields expected by the new agent
+        def extract_obs_nodes_info(inf: dict) -> dict:
+            try:
+                om = inf.get("observation_metadata", {})
+                if isinstance(om.get("obs_nodes_info"), dict):
+                    return om.get("obs_nodes_info")
+                if isinstance(om.get("text", {}), dict) and isinstance(om.get("text", {}).get("obs_nodes_info"), dict):
+                    return om.get("text", {}).get("obs_nodes_info")
+                if isinstance(om.get("image", {}), dict) and isinstance(om.get("image", {}).get("obs_nodes_info"), dict):
+                    return om.get("image", {}).get("obs_nodes_info")
+            except Exception:
+                pass
+            return {}
+
+        def extract_current_url(inf: dict) -> str:
+            try:
+                page = inf.get("page")
+                if hasattr(page, "url"):
+                    return page.url
+            except Exception:
+                pass
+            return test_config.get("start_url", "")
+
+        meta_data["start_url"] = test_config.get("start_url", meta_data.get("start_url"))
+        meta_data["current_url"] = extract_current_url(info)
+        meta_data["obs_nodes_info"] = extract_obs_nodes_info(info)
         meta_data["action_history"] = ["None"]
 
         step_idx = 0
@@ -293,31 +316,21 @@ def main() -> None:
             
             # Generate next action
             try:
-                # Add discovery context if available
-                if hasattr(agent, 'get_discovery_context'):
-                    discovery_context = agent.get_discovery_context()
-                    if discovery_context:
-                        discovery_str = "\n\nPrevious Discoveries:\n"
-                        for entry in discovery_context[-3:]:  # Last 3 discoveries
-                            discovery_str += f"- {entry.get('message', '')}\n"
-                        enhanced_intent = intent + discovery_str
-                    else:
-                        enhanced_intent = intent
-                else:
-                    enhanced_intent = intent
-                
+                # Refresh per-step meta for the agent
+                meta_data["current_url"] = extract_current_url(state_info["info"])  # type: ignore[index]
+                meta_data["obs_nodes_info"] = extract_obs_nodes_info(state_info["info"])  # type: ignore[index]
+
                 action = agent.next_action(
                     trajectory=trajectory,
-                    intent=enhanced_intent,
+                    intent=intent,
                     meta_data=meta_data,
-                    images=None,
                     output_response=args.output_response,
                 )
             except Exception as e:
                 logger.error(f"Error generating action at step {step_idx}: {e}")
-                action = create_stop_action(f"ERROR: {str(e)}")
+                action = create_send_message_to_user_action(f"ERROR: {str(e)}")
 
-            logger.info(f"Generated action: {action}")
+            logger.info(f"Generated action: {action.action_type} {action.answer}")
             # Per-step summary: concise action + reward score
             try:
                 action_type = action.get("action_type")
@@ -336,12 +349,10 @@ def main() -> None:
                 pass
             trajectory.append(action)
 
-            # Handle send_msg actions
-            if action.get("action_type") == ActionTypes.SEND_MESSAGE_TO_USER:
+            # Handle send_msg actions (no discovery context)
+            if action.get("action_type") == ActionTypes.SEND_MESSAGE_TO_USER and args.output_response:
                 message = action.get("answer", "")
-                logger.info(f"=== SEND_MSG_TO_USER DISCOVERY ===\n{message}\n")
-                if args.output_response:
-                    print(f"\n=== New Discovery ===\n{message}\n")
+                print(f"\n=== Final Answer Candidate ===\n{message}\n")
 
             # Get action description for history
             try:
@@ -357,9 +368,9 @@ def main() -> None:
             meta_data["action_history"].append(action_str)
 
             # Check for stop action
-            if action["action_type"] == ActionTypes.STOP:
+            if action["action_type"] == ActionTypes.SEND_MESSAGE_TO_USER:
                 final_answer = action.get("answer", "")
-                logger.info("Received STOP action. Terminating.")
+                logger.info("Received SEND_MESSAGE_TO_USER action. Terminating.")
                 if final_answer:
                     logger.info(f"Final answer: {final_answer}")
                     if args.output_response:
@@ -373,7 +384,7 @@ def main() -> None:
 
             if terminated:
                 logger.info("Environment signaled termination.")
-                trajectory.append(create_stop_action(""))
+                trajectory.append(create_send_message_to_user_action(final_answer))
                 break
 
             step_idx += 1

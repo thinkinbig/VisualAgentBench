@@ -26,8 +26,7 @@ from .actions import (
     create_playwright_action,
     create_random_action,
     create_scroll_action,
-
-    create_stop_action,
+    create_send_message_to_user_action,
     create_type_action,
     is_equivalent,
 )
@@ -39,8 +38,11 @@ except Exception:
     AsyncScriptBrowserEnv = None  # type: ignore[assignment]
     ScriptBrowserEnv = None  # type: ignore[assignment]
 from .processors import ObservationMetadata
-from .trajectory import Trajectory
 from .utils import DetachedPage, StateInfo
+from .trajectory import Trajectory
+
+# Backward-compatibility: some code imports create_stop_action
+create_stop_action = create_send_message_to_user_action
 
 __all__ = [
     "ScriptBrowserEnv",
@@ -74,7 +76,7 @@ __all__ = [
     "create_click_action",
     "create_type_action",
     "create_hover_action",
-
+    "create_send_message_to_user_action",
     "create_stop_action",
     "ActionParsingError",
     "Trajectory",

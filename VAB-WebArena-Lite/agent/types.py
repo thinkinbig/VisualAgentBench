@@ -1,11 +1,16 @@
 """
 Agent-layer type definitions for staged policy and reward evaluation.
 """
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
 from pydantic import BaseModel, Field, validator
 from enum import Enum
 from browser_env.trajectory import Trajectory
-from llms.types import ParsedAction
+
+# Avoid circular import with llms.types by importing ParsedAction only for type checking
+if TYPE_CHECKING:
+    from llms.types import ParsedAction  # type: ignore
+else:
+    ParsedAction = Any  # type: ignore
 
 
 
@@ -39,13 +44,11 @@ class PolicyRequest(BaseModel):
     """Stage One request payload for policy action generation."""
     intent: str = Field(description="Task intent/objective provided to the agent.")
     observation: str = Field(description="AXTREE text of the current page. Include bids and labels.")
-    trajectory: str = Field(description="Recent steps as lines like '{THOUGHT: ..., ACTION: ...}'.")
     current_url: str = Field(description="Current page URL at decision time.")
     previous_action: str = Field(description="The previous action string, or 'None'.")
     start_url: Optional[str] = Field(None, description="Start URL of the task/episode.")
-    discovery_context: Optional[str] = Field(None, description="Optional log of prior discoveries/messages.")
 
-    @validator('intent', 'observation', 'trajectory', 'current_url', 'previous_action', 'start_url', 'discovery_context', pre=True, always=True)
+    @validator('intent', 'observation', 'current_url', 'previous_action', 'start_url', pre=True, always=True)
     def _strip_strings(cls, v):
         if v is None:
             return v

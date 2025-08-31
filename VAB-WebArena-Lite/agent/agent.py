@@ -1,17 +1,12 @@
 import argparse
-import logging
 import json
-import copy
-from typing import Any, Optional, List, Dict, Tuple
+from typing import Any, Optional
 from types import SimpleNamespace
-import time
 
-from beartype import beartype
-from typing import Any
-from llms.utils import build_api_input_for_text, call_llm
+from beartype import beartype   
+from llms.utils import call_llm
 
 from agent.prompts import *
-from agent.config_schema import load_and_validate_instruction
 from browser_env import Trajectory
 from browser_env.actions import (
     Action,
@@ -20,9 +15,7 @@ from browser_env.actions import (
     create_none_action,
     create_playwright_action,
     create_webrl_id_based_action,
-    create_stop_action,
 )
-from browser_env.utils import StateInfo
 from llms import (
     call_llm,
     lm_config,
@@ -41,13 +34,6 @@ class Agent:
     ) -> Action:
         """Predict the next action given the observation"""
         raise NotImplementedError
-
-    def reset(
-        self,
-        test_config_file: str,
-    ) -> None:
-        raise NotImplementedError
-
 
 class TeacherForcingAgent(Agent):
     """Agent that follows a pre-defined action sequence"""
@@ -89,17 +75,6 @@ class TeacherForcingAgent(Agent):
     ) -> Action:
         """Predict the next action given the observation"""
         return self.actions.pop(0)
-
-    def reset(
-        self,
-        test_config_file: str,
-    ) -> None:
-        with open(test_config_file) as f:
-            ref_actions = json.load(f)["reference_action_sequence"]
-            tag = ref_actions["action_set_tag"]
-            action_seq = ref_actions["action_sequence"]
-            self.set_action_set_tag(tag)
-            self.set_actions(action_seq)
 
 
 class PromptAgent(Agent):
@@ -179,15 +154,13 @@ class PromptAgent(Agent):
 
         return action
 
-    def reset(self, test_config_file: str) -> None:
-        pass
-
 
 def construct_agent(args: argparse.Namespace, captioning_fn=None) -> Agent:
     # Optionally read instruction JSON to pick up defaults for policy model and action_set_tag
     instruction_obj: dict[str, Any] | None = None
     try:
-        instruction_obj = json.loads(load_and_validate_instruction(args.instruction_path).json())
+        with open(args.instruction_path, "r") as _f:
+            instruction_obj = json.load(_f)
     except Exception:
         instruction_obj = None
 
