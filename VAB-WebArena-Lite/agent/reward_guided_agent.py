@@ -2,7 +2,6 @@ import logging
 import os
 import json
 import re
-import random
 from typing import Any, Optional, List, Dict, Tuple
 
 from beartype import beartype
@@ -12,9 +11,11 @@ from browser_env.trajectory import Trajectory
 from browser_env.actions import (
     Action,
     create_none_action,
+    create_id_based_action,
 )
 from llms import lm_config
 from llms.json_validator import JSONResponseValidator
+from llms.types import ThoughtActionPair
 from .types import (
     Meta,
     AgentRuntime,
@@ -53,7 +54,7 @@ class RewardGuidedAgent(Agent):
         policy_lm_config: Optional[lm_config.LMConfig] = None,
         reward_lm_config: Optional[lm_config.LMConfig] = None,
         captioning_fn: Optional[Any] = None,
-        num_samples: int = 8,
+        num_samples: int = 1,
         best_of: int = 10,
         temperature: float = 1.0,
         top_p: float = 0.9,
@@ -102,6 +103,26 @@ class RewardGuidedAgent(Agent):
                     lines.append(t)
         except Exception:
             pass
+        return "\n".join(lines)
+
+    def _compose_trajectory_from_meta(self) -> str:
+        """Compose trajectory text from runtime meta if ThoughtActionPair items exist.
+
+        Each line formatted as: {THOUGHT: ..., ACTION: ...}
+        If meta.trajectory is empty or items lack attributes, returns empty string.
+        """
+        m = self.runtime.meta
+        if not isinstance(m.trajectory, list) or not m.trajectory:
+            return ""
+        lines: List[str] = []
+        for item in m.trajectory:
+            try:
+                thought = getattr(item, "thought", None)
+                action = getattr(item, "action", None)
+                if isinstance(thought, str) and isinstance(action, str):
+                    lines.append(f"{{THOUGHT: {thought}, ACTION: {action}}}")
+            except Exception:
+                continue
         return "\n".join(lines)
 
     # ---------------------------- Stage 1: Policy ----------------------------
@@ -235,27 +256,16 @@ class RewardGuidedAgent(Agent):
         return len(order)
 
     def _sample_policy_candidates(self, req: PolicyRequest) -> List[PolicyResponse]:
-        # Best-of sampling from current observation and URL-derived candidates
+        # Build a single group of up to N candidate actions from the observation
         action_pool = self._build_action_pool_from_obs(req)
         if not action_pool:
             self.logger.info("No element-derived actions from observation; falling back to scroll only.")
             action_pool = ["```scroll [down]```", "```scroll [up]```"]
 
-        chosen_actions: List[str] = []
-        for slot in range(self.num_samples):
-            k = min(len(action_pool), max(1, self.best_of))
-            sampled = random.sample(action_pool, k=k)
-            sampled_sorted = sorted(sampled, key=self._rank_action)
-            best = sampled_sorted[0]
-            try:
-                self.logger.info(
-                    _hr(f"POLICY BEST-OF (slot {slot+1}/{self.num_samples}, best_of={self.best_of})") +
-                    "\n".join([f"- {s}" for s in sampled_sorted]) +
-                    f"\nChosen: {best}"
-                )
-            except Exception:
-                pass
-            chosen_actions.append(best)
+        # Prefer higher-priority verbs first, then take the first N
+        ordered = sorted(action_pool, key=self._rank_action)
+        n = min(self.num_samples, len(ordered))
+        chosen_actions: List[str] = ordered[:n]
 
         url = self.runtime.meta.current_url or req.current_url or ""
         cp_list: List[PolicyResponse] = []
@@ -293,7 +303,7 @@ class RewardGuidedAgent(Agent):
         return RewardRequest(
             intent=base.intent,
             observation=base.observation,
-            trajectory=base.trajectory,
+            trajectory=self._compose_trajectory_from_meta(),
             start_url=base.start_url or "",
             current_url=base.current_url,
             thought1=thought1,
@@ -349,6 +359,13 @@ class RewardGuidedAgent(Agent):
         )
 
     def _knockout(self, base_req: PolicyRequest, candidates: List[PolicyResponse]) -> Optional[PolicyResponse]:
+        """King-of-the-hill tournament: champion challenges the next candidate sequentially.
+
+        - Start with the first candidate as champion.
+        - For each subsequent candidate, run a single pairwise reward comparison.
+        - The winner becomes/keeps the champion.
+        - Final champion is returned.
+        """
         if not candidates:
             self.logger.info("No policy candidates; skipping knockout.")
             return None
@@ -356,39 +373,24 @@ class RewardGuidedAgent(Agent):
             self.logger.info("Single candidate; knockout skipped. Winner = #0")
             return candidates[0]
 
-        indices = list(range(len(candidates)))
-        round_idx = 0
-        while len(indices) > 1:
-            self.logger.info(_hr(f"====KNOCKOUT ROUND {round_idx + 1}===="))
-            next_round: List[int] = []
-            i = 0
-            pair_idx = 0
-            while i < len(indices):
-                if i == len(indices) - 1:
-                    self.logger.info(f"Odd participant gets bye: #{indices[i]}")
-                    next_round.append(indices[i])
-                    break
-                ia = indices[i]
-                ib = indices[i + 1]
-                ra = candidates[ia]
-                rb = candidates[ib]
-                rr = self._build_reward_request(base_req, ra, rb)
-                self.logger.info(f"Pair {pair_idx}: #{ia} vs #{ib}")
-                score = self._score_pair(rr, round_idx + 1, pair_idx)
-                if score.winner == 2 or score.decision == PairwiseDecision.RESPONSE_2:
-                    self.logger.info(f"Winner: #{ib}")
-                    next_round.append(ib)
-                else:
-                    self.logger.info(f"Winner: #{ia} (tie -> left wins by default)")
-                    next_round.append(ia)
-                pair_idx += 1
-                i += 2
-            indices = next_round
-            round_idx += 1
+        champion_idx = 0
+        self.logger.info(_hr("====KING-OF-HILL START====") + f"Initial champion: #0")
+        pair_idx = 0
+        for challenger_idx in range(1, len(candidates)):
+            ra = candidates[champion_idx]
+            rb = candidates[challenger_idx]
+            rr = self._build_reward_request(base_req, ra, rb)
+            self.logger.info(f"Match {pair_idx}: champion #{champion_idx} vs challenger #{challenger_idx}")
+            score = self._score_pair(rr, round_idx=1, pair_idx=pair_idx)
+            if score.winner == 2 or score.decision == PairwiseDecision.RESPONSE_2:
+                self.logger.info(f"Champion replaced: new champion #{challenger_idx}")
+                champion_idx = challenger_idx
+            else:
+                self.logger.info(f"Champion stays: #{champion_idx} (tie -> champion wins by default)")
+            pair_idx += 1
 
-        winner_idx = indices[0]
-        self.logger.info(_hr("KNOCKOUT RESULT") + f"Winner index: #{winner_idx}")
-        return candidates[winner_idx]
+        self.logger.info(_hr("KING-OF-HILL RESULT") + f"Winner index: #{champion_idx}")
+        return candidates[champion_idx]
 
     # ---------------------------- Public API ----------------------------
     @beartype
@@ -422,12 +424,38 @@ class RewardGuidedAgent(Agent):
         if winner and winner.aggregate:
             self.runtime.last_aggregate = winner.aggregate
 
-        # Return a no-op action for now; include a readable summary
-        action = create_none_action()
-        summary = "no-candidates" if not candidates else (
-            (winner.block.action if winner and winner.block else "winner-without-block")
-        )
-        action["raw_prediction"] = f"reward-guided-skeleton step={self.runtime.step} summary={summary}"
-        return action
+        # Append chosen thought-action to meta.trajectory for future rounds
+        if winner and winner.block:
+            try:
+                tap = ThoughtActionPair(
+                    thought=winner.block.thought or "",
+                    action=winner.block.action or "",
+                )
+                self.runtime.meta.trajectory.append(tap)
+            except Exception:
+                pass
+
+        # Helper to parse a raw BLOCK.action string
+        def _try_parse(raw_action: str) -> Optional[Action]:
+            s = raw_action.strip()
+            if s.startswith("```") and s.endswith("```"):
+                s = s[3:-3].strip()
+            else:
+                s = s.strip("`").strip()
+            try:
+                return create_id_based_action(s)
+            except Exception:
+                return None
+
+        # First try: parse winner action
+        if winner and winner.block and isinstance(winner.block.action, str):
+            parsed = _try_parse(winner.block.action)
+            if parsed is not None:
+                return parsed
+            else:
+                self.logger.warning("Failed to parse winner action; trying alternates.")
+
+        # If nothing parsed, raise to surface the issue instead of silently emitting NONE
+        raise ValueError("Failed to parse any candidate action (winner and alternates)")
 
 

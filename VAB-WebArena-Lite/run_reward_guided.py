@@ -311,6 +311,7 @@ def main() -> None:
         meta_data["action_history"] = ["None"]
 
         step_idx = 0
+        final_answer: str = ""
         while step_idx < args.max_steps:
             logger.debug(f"=== Action Step {step_idx + 1} ===")
             
@@ -330,7 +331,13 @@ def main() -> None:
                 logger.error(f"Error generating action at step {step_idx}: {e}")
                 action = create_send_message_to_user_action(f"ERROR: {str(e)}")
 
-            logger.info(f"Generated action: {action.action_type} {action.answer}")
+            try:
+                action_type_val = action.get("action_type")
+                element_id_val = action.get("element_id", "")
+                answer_val = action.get("answer", "")
+                logger.info(f"Generated action: {action_type_val} [{element_id_val}] {answer_val}")
+            except Exception:
+                logger.info(f"Generated action: {str(action)}")
             # Per-step summary: concise action + reward score
             try:
                 action_type = action.get("action_type")
@@ -352,6 +359,7 @@ def main() -> None:
             # Handle send_msg actions (no discovery context)
             if action.get("action_type") == ActionTypes.SEND_MESSAGE_TO_USER and args.output_response:
                 message = action.get("answer", "")
+                final_answer = message
                 print(f"\n=== Final Answer Candidate ===\n{message}\n")
 
             # Get action description for history
