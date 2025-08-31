@@ -153,8 +153,6 @@ def action2str(
                 action_str = f"page_focus [{action['page_number']}]"
             case ActionTypes.CLEAR:
                 action_str = f"clear [{element_id}] where [{element_id}] is {semantic_element}"
-            case ActionTypes.STOP:
-                action_str = f"stop [{action['answer']}]"
             case ActionTypes.SEND_MESSAGE_TO_USER:
                 action_str = f"send_msg_to_user(\"{action['answer']}\")"
             case ActionTypes.NONE:
@@ -194,8 +192,6 @@ def action2str(
                 action_str = "go_forward"
             case ActionTypes.PAGE_FOCUS:
                 action_str = f"page_focus [{action['page_number']}]"
-            case ActionTypes.STOP:
-                action_str = f"stop [{action['answer']}]"
             case ActionTypes.SEND_MESSAGE_TO_USER:
                 action_str = f"send_msg_to_user(\"{action['answer']}\")"
             case ActionTypes.NONE:
@@ -229,8 +225,6 @@ def action2create_function(action: Action) -> str:
             return "create_go_back_action()"
         case ActionTypes.GO_FORWARD:
             return "create_go_forward_action()"
-        case ActionTypes.SEND_MESSAGE_TO_USER:
-            return f'create_send_message_to_user_action({repr(action["answer"])})'
         case ActionTypes.GOTO_URL:
             return f"create_goto_url_action({repr(action['url'])})"
         case ActionTypes.PAGE_CLOSE:
@@ -291,8 +285,8 @@ def action2create_function(action: Action) -> str:
         # high-level actions, only support locators from playwright
         case ActionTypes.CHECK:
             return f"create_check_action(pw_code={repr(action['pw_code'])})"
-        case ActionTypes.STOP:
-            return f'create_stop_action({repr(action["answer"])})'
+        case ActionTypes.SEND_MESSAGE_TO_USER:
+            return f'create_send_message_to_user_action({repr(action["answer"])})'
 
     raise ValueError(f"Invalid action type: {action['action_type']}")
 
@@ -326,11 +320,8 @@ class ActionTypes(IntEnum):
     # high-leval actions that playwright support
     CHECK = 15
 
-    STOP = 17
+    SEND_MESSAGE_TO_USER = 17
     CLEAR = 18
-    
-    # message actions
-    SEND_MESSAGE_TO_USER = 21
     
     # webrl actions
     SEARCH = 22
@@ -384,8 +375,6 @@ def is_equivalent(a: Action, b: Action) -> bool:
             return True
         case ActionTypes.CHECK:
             return a["pw_code"] == b["pw_code"]
-        case ActionTypes.STOP:
-            return a["answer"] == b["answer"]
         case ActionTypes.SEND_MESSAGE_TO_USER:
             return a["answer"] == b["answer"]
         case _:
@@ -514,17 +503,9 @@ def create_none_action() -> Action:
 
 
 @beartype
-def create_stop_action(answer: str) -> Action:
+def create_send_message_to_user_action(answer: str) -> Action:
     action = create_none_action()
-    action.update({"action_type": ActionTypes.STOP, "answer": answer})
-    return action
-
-
-@beartype
-def create_send_message_to_user_action(message: str) -> Action:
-    """Create a send message action for user communication"""
-    action = create_none_action()
-    action.update({"action_type": ActionTypes.SEND_MESSAGE_TO_USER, "answer": message})
+    action.update({"action_type": ActionTypes.SEND_MESSAGE_TO_USER, "answer": answer})
     return action
 
 
@@ -1348,9 +1329,6 @@ def execute_action_webrl(
                     break
             if value is not None:
                 last_turn_element.select_option(value=value)
-        case ActionTypes.SEND_MESSAGE_TO_USER:
-            print(f"\n=== Intermediate Message ===\n{action['answer']}\n")
-            pass
         case _:
             raise ValueError(f"Unknown action type: {action_type}")
             
@@ -1479,14 +1457,6 @@ def execute_action(
             else:
                 page = browser_ctx.new_page()
 
-        case ActionTypes.SEND_MESSAGE_TO_USER:
-            # Handle send_msg action - just log the message and continue
-            message = action.get("answer", "")
-            print(f"\n=== Intermediate Message ===\n{message}\n")
-            # You could also log this to a file or send it to a logging system
-            pass
-
-
         case ActionTypes.CHECK:
             if action["pw_code"]:
                 parsed_code = parse_playwright_code(action["pw_code"])
@@ -1612,10 +1582,6 @@ async def aexecute_action(
             page = await browser_ctx.new_page()
         case ActionTypes.GO_BACK:
             await page.go_back()
-        case ActionTypes.SEND_MESSAGE_TO_USER:
-            message = action.get("answer", "")
-            print(f"\n=== Intermediate Message ===\n{message}\n")
-            pass
         case ActionTypes.GO_FORWARD:
             await page.go_forward()
         case ActionTypes.GOTO_URL:
@@ -1774,14 +1740,14 @@ def create_playwright_action(playwright_code: str) -> Action:
             return create_go_forward_action()
         case "page_close":
             return create_page_close_action()
-        case "stop":  # page.stop(answer)
-            p = r'stop\(?"(.+)?"\)'
+        case "send_msg_to_user":  # page.send_msg_to_user(answer)
+            p = r'send_msg_to_user\(?"(.+)?"\)'
             match = re.search(p, playwright_code)
             if not match:
                 answer = ""
             else:
                 answer = match.group(1)
-            return create_stop_action(answer)
+            return create_send_message_to_user_action(answer)
 
     raise ActionParsingError(f"Unknown playwright action {action}")
 
@@ -1790,13 +1756,6 @@ def create_playwright_action(playwright_code: str) -> Action:
 def create_id_based_action(action_str: str) -> Action:
     """Main function to return individual id based action"""
     action_str = action_str.strip()
-    try:
-        msg_match = re.search(r"send_msg_to_user\s*\(\s*([\"\'])(.*?)\1\s*\)", action_str, flags=re.DOTALL)
-        if msg_match:
-            message = msg_match.group(2)
-            return create_send_message_to_user_action(message)
-    except Exception:
-        pass
     if "[" in action_str:
         action = action_str.split("[")[0].strip()
     else:
@@ -1897,13 +1856,13 @@ def create_id_based_action(action_str: str) -> Action:
         case "close_tab":
             return create_page_close_action()
 
-        case "stop":  # stop answer
-            match = re.search(r"stop ?\[(.+)\]", action_str)
+        case "send_msg_to_user":  # send_msg_to_user answer
+            match = re.search(r"send_msg_to_user ?\[(.+)\]", action_str)
             if not match:  # some tasks don't require an answer
                 answer = ""
             else:
                 answer = match.group(1)
-            return create_stop_action(answer)
+            return create_send_message_to_user_action(answer)
 
     raise ActionParsingError(f"Invalid action {action_str}")
 
@@ -1945,7 +1904,7 @@ def create_webrl_id_based_action(action_str: str) -> Action:
         # 提取参数
         args = func_call.args
         kwargs = func_call.keywords
-        # 记录位置参数（用于 send_msg_to_user("...") 等）
+        # 记录位置参数
         if args:
             extracted_args = []
             for a in args:
@@ -2018,16 +1977,8 @@ def create_webrl_id_based_action(action_str: str) -> Action:
                     element_id = action["kwargs"]["element"]
                     text = action["kwargs"]["argument"]
                     return create_search_action(text=text, element_id=element_id)
-        case "exit": # stop answer
+        case "exit": # send_msg_to_user answer
             answer = action['kwargs']['message']
-            return create_stop_action(answer)
-        case "send_msg_to_user" | "send_msg":
-            # 支持 Web-Shepherd 的消息动作
-            answer = ""
-            if "args" in action and isinstance(action["args"], list) and len(action["args"]) > 0:
-                answer = str(action["args"][0])
-            elif "kwargs" in action and isinstance(action["kwargs"], dict):
-                answer = str(action["kwargs"].get("message", ""))
-            return create_stop_action(answer)
+            return create_send_message_to_user_action(answer)
 
     raise ActionParsingError(f"Invalid action {action_str}")

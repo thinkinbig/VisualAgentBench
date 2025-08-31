@@ -1,7 +1,9 @@
 import argparse
 import logging
 import time
-from typing import Any
+from typing import Any, Optional
+from .json_validator import JSONResponseValidator
+from .response_types import LLMResponse
 
 try:
     from vertexai.preview.generative_models import Image
@@ -157,3 +159,65 @@ def call_llm(
     if last_err is not None:
         logging.error(f"LLM call failed after {max_attempts} attempts: {last_err}")
     return ""
+
+
+def call_llm_with_validation(
+    lm_config: lm_config.LMConfig,
+    prompt: APIInput,
+    api_key = None,
+    base_url = None,
+    validate_json: bool = True
+) -> LLMResponse:
+    """Call LLM with JSON response validation and retry logic.
+    
+    Args:
+        lm_config: Language model configuration
+        prompt: API input prompt
+        api_key: Optional API key override
+        base_url: Optional base URL override
+        validate_json: Whether to validate and fix JSON responses
+        
+    Returns:
+        LLMResponse object with validation results
+    """
+    validator = JSONResponseValidator()
+    max_attempts = 3
+    
+    for attempt in range(max_attempts):
+        # Get raw response from LLM
+        raw_response = call_llm(lm_config, prompt, api_key, base_url)
+        
+        if not raw_response.strip():
+            continue
+            
+        if not validate_json:
+            # Return without validation
+            return LLMResponse(
+                raw_response=raw_response,
+                is_valid=True
+            )
+        
+        # Validate and potentially fix the response
+        validated_response = validator.validate_and_retry(raw_response)
+        
+        if validated_response.is_valid:
+            logging.info(f"Successfully validated LLM response on attempt {attempt + 1}")
+            return validated_response
+        
+        # Log validation errors for debugging
+        logging.warning(
+            f"Attempt {attempt + 1} validation failed: {validated_response.validation_errors}"
+        )
+        
+        # If this isn't the last attempt, we could modify the prompt to request better formatting
+        if attempt < max_attempts - 1:
+            logging.info("Retrying with format-focused prompt...")
+            # You could modify the prompt here to emphasize JSON formatting
+    
+    # Return the last attempt even if invalid
+    logging.error("All validation attempts failed, returning last response")
+    return validated_response if 'validated_response' in locals() else LLMResponse(
+        raw_response="",
+        is_valid=False,
+        validation_errors=["No valid response received"]
+    )
