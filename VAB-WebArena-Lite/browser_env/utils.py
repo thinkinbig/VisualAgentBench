@@ -100,7 +100,3 @@ DOMTree = list[DOMNode]
 
 Observation = str | npt.NDArray[np.uint8]
 
-
-class StateInfo(TypedDict):
-    observation: dict[str, Observation]
-    info: Dict[str, Any]

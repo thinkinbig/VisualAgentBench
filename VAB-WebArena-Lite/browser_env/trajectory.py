@@ -1,6 +1,5 @@
-from typing import Union
+from typing import List
 
-from .actions import Action
-from .utils import StateInfo
+from llms.types import ThoughtActionPair
 
-Trajectory = list[Union[StateInfo, Action]]
+Trajectory = List[ThoughtActionPair]

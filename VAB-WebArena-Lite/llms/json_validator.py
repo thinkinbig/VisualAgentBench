@@ -5,7 +5,7 @@ import json
 import re
 from typing import Dict, Any, Tuple, Optional
 from pydantic import ValidationError
-from .response_types import LLMResponse, AgentResponse, ThoughtActionPair, ParsedAction, ActionType
+from .types import LLMResponse, PolicyResponse, ThoughtActionPair, ParsedAction, ActionType
 
 
 class JSONResponseValidator:
@@ -55,7 +55,7 @@ class JSONResponseValidator:
         response.validation_errors.append("Unable to parse response in any expected format")
         return response
     
-    def _parse_structured_response(self, response: str) -> Optional[AgentResponse]:
+    def _parse_structured_response(self, response: str) -> Optional[PolicyResponse]:
         """Parse structured JSON response with CHECKPOINT/AGGREGATE/BLOCK"""
         # Look for JSON-like structure
         json_match = re.search(r'\{[\s\S]*\}', response)
@@ -65,7 +65,7 @@ class JSONResponseValidator:
         json_str = json_match.group(0)
         try:
             json_data = json.loads(json_str)
-            return AgentResponse.parse_obj(json_data)
+            return PolicyResponse.parse_obj(json_data)
         except (json.JSONDecodeError, ValidationError):
             return None
     
