@@ -67,7 +67,7 @@ examples = [
     "{\n"
     "  \"BLOCK\": {\n"
     "    \"thought\": \"The user is on OpenStreetMap with the search box focused (#164). To show restaurants near CMU, typing the query and submitting will fetch nearby results.\",\n"
-    "    \"action\": \"```type [164] [restaurants near CMU] [1]```\"\n"
+    "    \"action\": \"type [164] [restaurants near CMU] [1]\"\n"
     "  }\n"
     "}"
     )
