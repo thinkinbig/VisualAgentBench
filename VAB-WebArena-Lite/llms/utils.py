@@ -78,13 +78,18 @@ def call_llm(
             if lm_config.provider == "openai":
                 if lm_config.mode == "chat":
                     assert isinstance(prompt, list)
+                    # Use safe defaults if not provided in gen_config
+                    context_len = lm_config.gen_config.get("context_length", 4096)
+                    max_tokens = lm_config.gen_config.get("max_tokens", 512)
+                    temperature = lm_config.gen_config.get("temperature", 1.0)
+                    top_p = lm_config.gen_config.get("top_p", 0.9)
                     response = generate_from_openai_chat_completion(
                         messages=prompt,
                         model=lm_config.model,
-                        temperature=lm_config.gen_config["temperature"],
-                        top_p=lm_config.gen_config["top_p"],
-                        context_length=lm_config.gen_config["context_length"],
-                        max_tokens=lm_config.gen_config["max_tokens"],
+                        temperature=temperature,
+                        top_p=top_p,
+                        context_length=context_len,
+                        max_tokens=max_tokens,
                         stop_token=None,
                     )
                 elif lm_config.mode == "completion":

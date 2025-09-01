@@ -4,7 +4,11 @@ Agent-layer type definitions for staged policy and reward evaluation.
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 from pydantic import BaseModel, Field, validator
 from enum import Enum
-from browser_env.trajectory import Trajectory
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from browser_env.trajectory import Trajectory
+else:
+    Trajectory = list  # type: ignore[assignment]
 
 # Avoid circular import with llms.types by importing ParsedAction only for type checking
 if TYPE_CHECKING:
@@ -18,37 +22,33 @@ class CheckpointInfo(BaseModel):
     """Checkpoint information from agent response (logging/memory for policy)."""
     step: int = Field(description="Monotonic turn counter (1-based). Increment every agent turn.")
     url: str = Field(description="Canonical current page URL (normalized by the environment).")
-    tab: Dict[str, object] = Field(description="Tab state snapshot, e.g. {'id': int, 'stack': List[str]}.")
+    action: Optional[str] = Field(None, description="The bracket action string the agent just executed, or 'None'.")
     objective: str = Field(description="Echo of the task's OBJECTIVE. Do not rewrite or expand.")
-    env_flags: Dict[str, bool] = Field(default_factory=dict, description="Observed environment flags.")
-    state_hash: str = Field(description="Opaque fingerprint of visible/interactive state (AXTREE + URL, etc.).")
+    observation: str = Field(description="AXTREE text of the current page. Include bids and labels.")
 
 
 class AggregateInfo(BaseModel):
-    """Aggregate (rolling working memory) from agent response."""
-    facts: List[str] = Field(default_factory=list, description="≤8 short KV-like strings for global context.")
-    entities: List[str] = Field(default_factory=list, description="≤8 compact handles of processed/target entities.")
-    evidence: List[str] = Field(default_factory=list, description="≤8 evidence lines, each referencing an AXTREE id.")
-    plan_next_1to3: List[str] = Field(default_factory=list, description="1–3 upcoming steps as action_text strings.")
-    risks: List[str] = Field(default_factory=list, description="≤3 short risk tags (e.g., 'captcha', 'auth').")
-    stop_condition: str = Field(description="Short predicate for termination (e.g., 'url_contains=success').")
+    note: List[str] = Field(default_factory=list, description="notes with key-value pairs; no AX ids.")
+    evidence: List[str] = Field(default_factory=list, description="anchors with AX ids, e.g., '#1749 $279.49 (price)'.")
+    plan_next: str = Field(default="", description="Intent of next action in text form.")
+    answer_ready: bool = Field(default=False, description="Whether the answer is ready.")
 
 
 class BlockInfo(BaseModel):
     """Executable decision for this turn. Executors evaluate ONLY this block."""
-    thought: str = Field(description="≤25 words explaining why this action advances the goal.")
-    action: str = Field(description="One-line bracket action, e.g., 'click [577]' or 'goto [http://…]'.")
+    thought: str = Field(description="Why this action advances the goal.")
+    action: str = Field(description="Action text WITHOUT backticks, e.g., 'click [577]' or 'goto [http://…]'.")
 
 
 class PolicyRequest(BaseModel):
     """Stage One request payload for policy action generation."""
     intent: str = Field(description="Task intent/objective provided to the agent.")
     observation: str = Field(description="AXTREE text of the current page. Include bids and labels.")
-    current_url: str = Field(description="Current page URL at decision time.")
-    previous_action: str = Field(description="The previous action string, or 'None'.")
-    start_url: Optional[str] = Field(None, description="Start URL of the task/episode.")
+    current_url: Optional[str] = Field(None, description="Current page URL at decision time.")
+    action: Optional[str] = Field(None, description="The action string, or 'None'.")
+    start_url: str = Field(description="Start URL of the task/episode.")
 
-    @validator('intent', 'observation', 'current_url', 'previous_action', 'start_url', pre=True, always=True)
+    @validator('intent', 'observation', 'action', 'start_url', pre=True, always=True)
     def _strip_strings(cls, v):
         if v is None:
             return v
@@ -57,14 +57,20 @@ class PolicyRequest(BaseModel):
         return v
 
 
-class PolicyResponse(BaseModel):
+class PlanRequest(BaseModel):
+    aggregate: Optional[AggregateInfo] = Field(default=None, alias="AGGREGATE")
+    observation: str
+    action: Optional[ParsedAction] = Field(default=None)
+
+class PlanResponse(BaseModel):
     """Complete policy agent response structure (CAB)."""
     checkpoint: Optional[CheckpointInfo] = Field(None, alias="CHECKPOINT")
     aggregate: Optional[AggregateInfo] = Field(None, alias="AGGREGATE")
-    block: Optional[BlockInfo] = Field(None, alias="BLOCK")
 
     class Config:
-        allow_population_by_field_name = True
+        population_by_field_name = True
+        populate_by_name = True
+
 
 
 class PairwiseDecision(str, Enum):
@@ -145,19 +151,16 @@ class AgentRuntime(BaseModel):
 
     - step: monotonic turn counter
     - meta: shared context (intent/urls/observation/trajectory)
-    - policy_request: last Stage 1 request
-    - policy_candidates: last Stage 1 candidates
+    - block_candidates: last Stage 1 candidates
     - selected_policy: current chosen candidate after knockout
     - tournament_history: record of pairwise comparisons
     """
     step: int = Field(default=0, description="Monotonic turn counter (1-based preferred externally).")
     meta: Meta = Field(default_factory=Meta, description="Shared runtime context.")
-    policy_request: Optional[PolicyRequest] = Field(None, description="Last policy request sent.")
-    policy_candidates: List[PolicyResponse] = Field(default_factory=list, description="Stage 1 candidates.")
-    selected_policy: Optional[PolicyResponse] = Field(None, description="Winner after knockout.")
+    block_candidates: List[BlockInfo] = Field(default_factory=list, description="Stage 1 candidates.")
+    selected_block: Optional[BlockInfo] = Field(None, description="Winner after knockout.")
     tournament_history: List[PairwiseMatch] = Field(default_factory=list, description="Pairwise comparison records.")
-    previous_action: Optional[ParsedAction] = Field(None, description="Most recently executed parsed action.")
-    last_checkpoint: Optional[CheckpointInfo] = Field(None, description="Latest CHECKPOINT snapshot parsed from policy output.")
-    last_aggregate: Optional[AggregateInfo] = Field(None, description="Latest AGGREGATE working memory parsed from policy output.")
+    checkpoint: Optional[CheckpointInfo] = Field(None, description="Latest CHECKPOINT snapshot parsed from policy output.")
+    aggregate: Optional[AggregateInfo] = Field(default_factory=AggregateInfo, description="Latest AGGREGATE working memory parsed from policy output.")
 
 

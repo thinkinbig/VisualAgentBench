@@ -19,6 +19,16 @@
             "max_tokens": 100
         }
     },
+    "note_lm_config": {
+        "provider": "openai",
+        "model": "gpt-4o",
+        "mode": "chat",
+        "gen_config": {
+            "temperature": 1.0,
+            "top_p": 0.9,
+            "max_tokens": 512
+        }
+    },
     "base_prompt": "p_cot_id_actree_3s_enhanced",
     "action_set_tag": "id_accessibility_tree",
     "num_samples": 10,

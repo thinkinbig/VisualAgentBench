@@ -1,8 +1,7 @@
 import logging
-import os
 import json
 import re
-from typing import Any, Optional, List, Dict, Tuple
+from typing import Optional, List, Dict, Any
 
 from beartype import beartype
 
@@ -10,42 +9,41 @@ from .agent import Agent
 from browser_env.trajectory import Trajectory
 from browser_env.actions import (
     Action,
-    create_none_action,
     create_id_based_action,
 )
 from llms import lm_config
-from llms.json_validator import JSONResponseValidator
-from llms.types import ThoughtActionPair
+from llms.utils import call_llm, build_api_input_for_text
 from .types import (
-    Meta,
-    AgentRuntime,
-    PolicyRequest,
-    PolicyResponse,
+    PlanRequest,
+    BlockInfo,
     RewardRequest,
     RewardResponse,
     PairwiseDecision,
-    CheckpointInfo,
     AggregateInfo,
 )
-from .prompts.p import (
-    role as pairwise_role,
-    evaluation_summarized_v3 as pairwise_eval_criteria,
-    context_rft_v3 as pairwise_user_template,
+from .runtime_manager import RuntimeManager
+ 
+from .prompts.sample_p import (
+    intro as sample_intro,
+    output_guidelines as sample_guidelines,
+    render_prompt as render_sample_prompt,
 )
-
-
-def _hr(title: str) -> str:
-    return f"\n===== {title} =====\n"
+from .prompts.note_p import (
+    role_note_taker_agg,
+    note_taker_rules_v1,
+    context_note_taker_v1,
+)
 
 
 class RewardGuidedAgent(Agent):
-    """Reward-guided agent (staged skeleton) with human-readable logging.
+    """Reward-guided agent with BLOCK-only policy and post-reward AGGREGATE update.
 
-    Stage 1 (Policy): Build PolicyRequest and log the policy prompt.
-    Stage 2 (Reward): Run pairwise knockout. For each match, build RewardRequest
-                      and log the reward prompt and decision.
-
-    Note: This skeleton does not call LLMs; prompts are printed for inspection.
+    Flow per turn:
+    1) Build PolicyRequest from runtime meta.
+    2) Sample BLOCK candidates (thought + bracket action string).
+    3) Run pairwise knockout using reward prompt (stubbed scorer by default).
+    4) After a winner is chosen, update runtime.aggregate.plan_next to winner.action.
+    5) Return parsed Action created from winner.action.
     """
 
     def __init__(
@@ -53,51 +51,26 @@ class RewardGuidedAgent(Agent):
         action_set_tag: str,
         policy_lm_config: Optional[lm_config.LMConfig] = None,
         reward_lm_config: Optional[lm_config.LMConfig] = None,
-        captioning_fn: Optional[Any] = None,
-        num_samples: int = 1,
-        best_of: int = 10,
-        temperature: float = 1.0,
-        top_p: float = 0.9,
+        note_lm_config: Optional[lm_config.LMConfig] = None,
+        num_samples: int = 16,
     ) -> None:
         super().__init__()
         self.logger = logging.getLogger("reward_guided_logger")
         self.action_set_tag = action_set_tag
         self.policy_lm_config = policy_lm_config
         self.reward_lm_config = reward_lm_config
-        self.captioning_fn = captioning_fn
+        self.note_lm_config = note_lm_config
         self.num_samples = max(1, int(num_samples))
-        self.best_of = max(1, int(best_of))
-        self.temperature = float(temperature)
-        self.top_p = float(top_p)
 
-        self.validator = JSONResponseValidator()
-        self.runtime = AgentRuntime()
-        self._policy_prompt: Optional[Dict[str, Any]] = None
-        self._load_policy_prompt()
+        self.rt = RuntimeManager()
 
     # ---------------------------- Utilities ----------------------------
-    def _update_meta(self, trajectory: Trajectory, intent: str, meta_data: Dict[str, Any]) -> None:
-        m: Meta = self.runtime.meta
-        m.intent = intent
-        m.trajectory = trajectory or []
-        # Accept environment-fed context when available
-        m.start_url = meta_data.get("start_url", m.start_url)
-        m.current_url = meta_data.get("current_url", m.current_url)
-        # Try to capture structured node metadata from browser_env
-        m.obs_nodes_info = None
-        try:
-            if isinstance(meta_data.get("obs_nodes_info"), dict):
-                m.obs_nodes_info = meta_data.get("obs_nodes_info")
-        except Exception:
-            m.obs_nodes_info = None
-
     def _compose_observation_from_nodes(self, nodes: Optional[Dict[str, Any]]) -> str:
-        """Compose observation string from structured node dict if available."""
         if not isinstance(nodes, dict) or not nodes:
             return ""
         lines: List[str] = []
         try:
-            for node_id, node in nodes.items():
+            for _, node in nodes.items():
                 t = str(node.get("text", ""))
                 if t:
                     lines.append(t)
@@ -106,12 +79,7 @@ class RewardGuidedAgent(Agent):
         return "\n".join(lines)
 
     def _compose_trajectory_from_meta(self) -> str:
-        """Compose trajectory text from runtime meta if ThoughtActionPair items exist.
-
-        Each line formatted as: {THOUGHT: ..., ACTION: ...}
-        If meta.trajectory is empty or items lack attributes, returns empty string.
-        """
-        m = self.runtime.meta
+        m = self.rt.get_meta()
         if not isinstance(m.trajectory, list) or not m.trajectory:
             return ""
         lines: List[str] = []
@@ -125,74 +93,84 @@ class RewardGuidedAgent(Agent):
                 continue
         return "\n".join(lines)
 
-    # ---------------------------- Stage 1: Policy ----------------------------
-    def _build_policy_request(self) -> PolicyRequest:
-        m = self.runtime.meta
-        previous_action_text = "None"
-        if self.runtime.previous_action is not None and hasattr(self.runtime.previous_action, "action_type"):
-            # Minimal printable previous action
-            at = self.runtime.previous_action.action_type.value
-            eid = self.runtime.previous_action.element_id or ""
-            previous_action_text = f"{at}{f' [{eid}]' if eid else ''}"
 
-        # Compose observation text from structured nodes if available
-        observation_text = self._compose_observation_from_nodes(m.obs_nodes_info)
-
-        req = PolicyRequest(
-            intent=m.intent or "",
-            observation=observation_text,
-            current_url=m.current_url or "",
-            previous_action=previous_action_text,
-            start_url=m.start_url
+    # ---------------------------- Stage 1: Policy (BLOCK only) ----------------------------
+    def _build_sample_request(self):
+        # Build a lightweight container with required attributes for prompts
+        from types import SimpleNamespace
+        req = SimpleNamespace(
+            intent=self.rt.get_intent(),
+            observation=self._compose_observation_from_nodes(self.rt.get_obs_nodes_info()),
+            current_url=self.rt.get_current_url(),
+            action=self.rt.get_checkpoint().action if self.rt.get_checkpoint() else None,
+            start_url=self.rt.get_start_url(),
         )
-        self.runtime.policy_request = req
         return req
 
-    def _format_policy_prompt(self, req: PolicyRequest) -> Tuple[str, str]:
-        # If enhanced prompt JSON is available, use it to format system/user
-        if self._policy_prompt:
-            intro = self._policy_prompt.get("intro", "")
-            examples = self._policy_prompt.get("examples", [])
-            template = self._policy_prompt.get("template", "{objective}\n{observation}\n{url}")
-            guidelines = self._policy_prompt.get("output_guidelines", "")
+    def _format_policy_prompt(self, req: PlanRequest) -> tuple[str, str]:
+        prev_action = "None"
+        try:
+            cp = self.rt.get_checkpoint()
+            if cp and isinstance(cp.action, str) and cp.action.strip():
+                prev_action = cp.action.strip()
+        except Exception:
+            pass
+        aggregate_json = "{}"
+        try:
+            ag = self.rt.get_aggregate()
+            if ag is not None:
+                aggregate_json = json.dumps(ag.dict(), ensure_ascii=False)
+        except Exception:
+            pass
+        system_text = f"{sample_intro}\n{sample_guidelines}"
+        user_text = render_sample_prompt(
+            objective=req.intent or "",
+            observation=req.observation or "",
+            url=req.current_url or "",
+            previous_action=prev_action,
+            aggregate=aggregate_json,
+        )
+        return system_text, user_text
 
-            # Build examples block
-            examples_block: List[str] = []
-            for i, pair in enumerate(examples):
-                if isinstance(pair, list) and len(pair) == 2:
-                    input_ex, output_ex = pair
-                    examples_block.append(f"Example {i+1}:\n{input_ex}\n\n{output_ex}")
-            system_text = intro
-            if examples_block:
-                system_text += "\n\## Examples:\n" + "\n\n".join(examples_block)
-            if guidelines:
-                system_text += "\n\n" + guidelines
+    def _parse_block_from_response(self, raw: str) -> Optional[BlockInfo]:
+        if not isinstance(raw, str) or not raw.strip():
+            return None
+        # Try JSON first
+        try:
+            import re as _re
+            m = _re.search(r"\{[\s\S]*\}", raw)
+            if m:
+                data = json.loads(m.group(0))
+                blk = data.get("BLOCK") if isinstance(data, dict) else None
+                if isinstance(blk, dict):
+                    thought = blk.get("thought") or ""
+                    action = blk.get("action") or ""
+                    # Strip backticks if present
+                    if isinstance(action, str):
+                        s = action.strip()
+                        if s.startswith("```") and s.endswith("```"):
+                            s = s[3:-3].strip()
+                        action = s
+                    if isinstance(thought, str) and isinstance(action, str) and action:
+                        return BlockInfo(thought=thought, action=action)
+        except Exception:
+            pass
+        # Fallback: extract action from code fence, thought from a simple key
+        try:
+            import re as _re
+            act_m = _re.search(r"```([\s\S]*?)```", raw)
+            thought_m = _re.search(r"\"thought\"\s*:\s*\"([^\"]*)\"", raw)
+            action = act_m.group(1).strip() if act_m else ""
+            thought = thought_m.group(1).strip() if thought_m else ""
+            if action:
+                return BlockInfo(thought=thought, action=action)
+        except Exception:
+            pass
+        return None
 
-            # Fill user template
-            last_cp = self.runtime.last_checkpoint.dict(by_alias=True) if self.runtime.last_checkpoint else {}
-            last_ag = self.runtime.last_aggregate.dict(by_alias=True) if self.runtime.last_aggregate else {}
-            open_tabs = "[]"  # placeholder if not tracked
-            # Observation text
-            observation_text = req.observation or self._compose_observation_from_nodes(self.runtime.meta.obs_nodes_info)
-
-            user_text = template.format(
-                objective=req.intent,
-                observation=observation_text or "",
-                url=req.current_url,
-                open_tabs=open_tabs,
-                previous_action=req.previous_action,
-                last_checkpoint=json.dumps(last_cp, ensure_ascii=False),
-                last_aggregate=json.dumps(last_ag, ensure_ascii=False),
-            )
-            return system_text, user_text
-
-    def _log_policy_prompt(self, system_text: str, user_text: str) -> None:
-        self.logger.info(_hr("====POLICY SYSTEM PROMPT====\n") + system_text)
-        self.logger.info(_hr("====POLICY USER PROMPT====\n") + user_text)
-
-    def _parse_ax_observation(self, observation: str) -> List[Dict[str, str]]:
+    def _parse_ax_observation(self, observation: Optional[str]) -> List[Dict[str, str]]:
         elems: List[Dict[str, str]] = []
-        if not observation:
+        if not isinstance(observation, str) or not observation.strip():
             return elems
         for line in observation.splitlines():
             m = re.match(r"^\s*\[(?P<id>[-A-Za-z0-9_]+)\]\s+(?P<role>[A-Za-z]+)(?:\s+'(?P<name>[^']*)')?", line)
@@ -204,149 +182,192 @@ class RewardGuidedAgent(Agent):
                 })
         return elems
 
-    def _build_action_pool_from_obs(self, req: PolicyRequest) -> List[str]:
-        # Prefer structured node info from browser_env if available
-        elems: List[Dict[str, str]] = []
-        nodes = self.runtime.meta.obs_nodes_info
-        if isinstance(nodes, dict) and nodes:
-            for node_id, node in nodes.items():
-                text = str(node.get("text", ""))
-                m = re.match(r"^\s*\[(?P<id>[-A-Za-z0-9_]+)\]\s+(?P<role>[A-Za-z]+)(?:\s+'(?P<name>[^']*)')?", text)
-                if m:
-                    elems.append({
-                        "id": m.group("id"),
-                        "role": m.group("role").lower(),
-                        "name": (m.group("name") or "").strip(),
-                    })
-        else:
-            elems = self._parse_ax_observation(req.observation or "")
-        pool: List[str] = []
-        clickable_roles = {"link", "button", "image", "img", "checkbox", "radio"}
-        type_roles = {"input", "textbox", "searchbox", "textarea", "combobox"}
-        # Element-derived actions
-        for e in elems:
-            eid = e["id"]
-            role = e["role"]
-            if role in clickable_roles:
-                pool.append(f"```click [{eid}]```")
-            if role in type_roles:
-                # Minimal placeholder content; press_enter_after defaults to 1
-                pool.append(f"```type [{eid}] [test] [1]```")
-            if role in {"link", "image", "img"}:
-                pool.append(f"```hover [{eid}]```")
-        # Generic actions
-        pool.extend(["```scroll [down]```", "```scroll [up]```"])
-        # Deduplicate while preserving order
-        seen = set()
-        unique_pool: List[str] = []
-        for a in pool:
-            if a not in seen:
-                seen.add(a)
-                unique_pool.append(a)
-        return unique_pool
+    def _format_reward_prompt(self, rr: RewardRequest) -> tuple[str, str]:
+        """Build system/user texts for reward LLM."""
+        system_text = (
+            "You are an expert judge for web navigation actions.\n"
+            "Choose which candidate action better progresses the objective given the current page.\n"
+            "Output strictly JSON: {\"decision\": \"response_1|response_2|undecided\"}."
+        )
 
-    def _rank_action(self, action_str: str) -> int:
-        s = action_str.lower()
-        order = [
-            "click", "type", "hover", "scroll",
+        user_parts = [
+            f"## OBJECTIVE\n{rr.intent}",
+            f"## URL\n{rr.current_url}",
+            f"## START_URL\n{rr.start_url}",
+            f"## AXTREE\n{rr.observation}",
+            f"## TRAJECTORY\n{rr.trajectory}",
+            "## CANDIDATES",
+            f"### RESPONSE_1\nTHOUGHT: {rr.thought1}\nACTION: {rr.action1}",
+            f"### RESPONSE_2\nTHOUGHT: {rr.thought2}\nACTION: {rr.action2}",
+            "## INSTRUCTIONS\nReturn strictly one JSON object: {\"decision\": \"response_1|response_2|undecided\"}"
         ]
-        for idx, verb in enumerate(order):
-            if s.startswith(f"```{verb}") or s.startswith(verb):
-                return idx
-        return len(order)
+        user_text = "\n\n".join(user_parts)
+        return system_text, user_text
 
-    def _sample_policy_candidates(self, req: PolicyRequest) -> List[PolicyResponse]:
-        # Build a single group of up to N candidate actions from the observation
-        action_pool = self._build_action_pool_from_obs(req)
-        if not action_pool:
-            self.logger.info("No element-derived actions from observation; falling back to scroll only.")
-            action_pool = ["```scroll [down]```", "```scroll [up]```"]
-
-        # Prefer higher-priority verbs first, then take the first N
-        ordered = sorted(action_pool, key=self._rank_action)
-        n = min(self.num_samples, len(ordered))
-        chosen_actions: List[str] = ordered[:n]
-
-        url = self.runtime.meta.current_url or req.current_url or ""
-        cp_list: List[PolicyResponse] = []
-        for idx, action_str in enumerate(chosen_actions):
-            checkpoint = CheckpointInfo(
-                step=max(1, self.runtime.step),
-                url=url,
-                tab={"id": 1, "stack": []},
-                objective=self.runtime.meta.intent or req.intent,
-                env_flags={},
-                state_hash=f"cp_{self.runtime.step}_{idx}"
-            )
-            aggregate = AggregateInfo(
-                facts=[], entities=[], evidence=[], plan_next_1to3=[action_str], risks=[], stop_condition=""
-            )
-            # Build minimal BLOCK-like structure via pydantic alias
-            pr = PolicyResponse(CHECKPOINT=checkpoint, AGGREGATE=aggregate, BLOCK={
-                "thought": "Sampled next step from observation.",
-                "action": action_str,
-            })
-            cp_list.append(pr)
-
+    def _parse_reward_decision(self, raw: str) -> PairwiseDecision:
         try:
-            self.logger.info(_hr("POLICY CANDIDATES") + "\n".join([f"#{i}: {c.block.action}" for i, c in enumerate(cp_list)]))
+            if not isinstance(raw, str) or not raw.strip():
+                return PairwiseDecision.UNDECIDED
+            m = re.search(r"\{[\s\S]*\}", raw)
+            if m:
+                data = json.loads(m.group(0))
+                dec = (data.get("decision") or "").strip().lower()
+                if dec in (PairwiseDecision.RESPONSE_1.value, PairwiseDecision.RESPONSE_2.value, PairwiseDecision.UNDECIDED.value):
+                    return PairwiseDecision(dec)
         except Exception:
             pass
-        return cp_list
+        return PairwiseDecision.UNDECIDED
 
-    # ---------------------------- Stage 2: Reward ----------------------------
-    def _build_reward_request(self, base: PolicyRequest, a: PolicyResponse, b: PolicyResponse) -> RewardRequest:
-        thought1 = a.block.thought if a and a.block else ""
-        action1 = a.block.action if a and a.block else ""
-        thought2 = b.block.thought if b and b.block else ""
-        action2 = b.block.action if b and b.block else ""
+    def _describe_action(self, action_str: str) -> str:
+        """Human-readable action meaning by looking up AXTREE id label from obs_nodes_info."""
+        try:
+            s = (action_str or "").strip()
+            # Extract element id for click/type/hover
+            m = re.search(r"^(click|type|hover)\s*\[([^\]]+)\]", s, re.IGNORECASE)
+            if not m:
+                # For goto, include URL
+                g = re.search(r"^goto\s*\[([^\]]+)\]", s, re.IGNORECASE)
+                if g:
+                    return f"goto → {g.group(1)}"
+                return s
+            elem_id = str(m.group(2)).strip()
+            verb = m.group(1).lower()
+            nodes = self.rt.get_obs_nodes_info()
+            if isinstance(nodes, dict) and elem_id in nodes:
+                node = nodes.get(elem_id, {})
+                node_text = str(node.get("text", "")).strip()
+                # Try to extract role and name from node_text like: "[430] menuitem 'Beauty & Personal Care' ..."
+                mm = re.search(r"^\s*\[[^\]]+\]\s*(?P<role>[A-Za-z]+)(?:\s+'(?P<name>[^']*)')?", node_text)
+                if mm:
+                    role = mm.group("role").lower()
+                    name = (mm.group("name") or "").strip()
+                    if name:
+                        return f"{verb} {role} '{name}' (#{elem_id})"
+                    return f"{verb} {role} (#{elem_id})"
+                return f"{verb} #{elem_id} '{node_text}'"
+            # Fallback: try to find any matching id key as string
+            if isinstance(nodes, dict):
+                node = nodes.get(str(elem_id)) or nodes.get(int(elem_id)) if str(elem_id).isdigit() else None  # type: ignore[index]
+                if isinstance(node, dict):
+                    node_text = str(node.get("text", "")).strip()
+                    mm = re.search(r"^\s*\[[^\]]+\]\s*(?P<role>[A-Za-z]+)(?:\s+'(?P<name>[^']*)')?", node_text)
+                    if mm:
+                        role = mm.group("role").lower()
+                        name = (mm.group("name") or "").strip()
+                        if name:
+                            return f"{verb} {role} '{name}' (#{elem_id})"
+                        return f"{verb} {role} (#{elem_id})"
+                    return f"{verb} #{elem_id} '{node_text}'"
+            return s
+        except Exception:
+            return action_str
+
+    def _sample_block_candidates(self, req: PlanRequest) -> List[BlockInfo]:
+        if self.policy_lm_config is None:
+            raise ValueError("Policy LLM config is required for LLM-based sampling")
+        sys_txt, usr_txt = self._format_policy_prompt(req)
+        # Build provider-correct API input (list of messages for chat models)
+        prompt = build_api_input_for_text(self.policy_lm_config, sys_txt, usr_txt)
+        # Log policy prompt (system and user) once per turn
+        try:
+            self.logger.info(f"[PROMPT_POLICY_SYSTEM]\n{sys_txt}")
+            self.logger.info(f"[PROMPT_POLICY_USER]\n{usr_txt}")
+        except Exception:
+            pass
+        seen_actions = set()
+        results: List[BlockInfo] = []
+        # Bounded sampling: cap attempts to avoid slow infinite rolling
+        target_samples = max(1, int(getattr(self, "num_samples", 16)))
+        max_attempts = max(10, target_samples * 3)
+        attempts = 0
+        # Keep sampling until target unique actions or attempt cap
+        while len(results) < target_samples and attempts < max_attempts:
+            try:
+                raw = call_llm(self.policy_lm_config, prompt)
+            except Exception:
+                raw = ""
+            # Log raw policy LLM response
+            try:
+                self.logger.info(f"[RAW_POLICY] {raw}")
+            except Exception:
+                pass
+            blk = self._parse_block_from_response(raw)
+            if blk is None or not isinstance(blk.action, str) or not blk.action.strip():
+                attempts += 1
+                continue
+            action_str = blk.action.strip().strip("`")
+            if action_str in seen_actions:
+                attempts += 1
+                continue
+            seen_actions.add(action_str)
+            # Normalize action field without backticks
+            blk = BlockInfo(thought=blk.thought or "", action=action_str)
+            results.append(blk)
+            attempts += 1
+        # Log thought with action (and brief meaning)
+        try:
+            for i, b in enumerate(results):
+                try:
+                    meaning = self._describe_action(b.action)
+                except Exception:
+                    meaning = b.action
+                self.logger.info(f"[THOUGHT] #{i}: {b.thought} | [ACTION] {b.action} | [MEANING] {meaning}")
+        except Exception:
+            pass
+        return results
+
+    # ---------------------------- Stage 2: Reward (pairwise knockout) ----------------------------
+    def _build_reward_request(self, base: PlanRequest, a: BlockInfo, b: BlockInfo) -> RewardRequest:
         return RewardRequest(
             intent=base.intent,
             observation=base.observation,
             trajectory=self._compose_trajectory_from_meta(),
-            start_url=base.start_url or "",
+            start_url=base.start_url,
             current_url=base.current_url,
-            thought1=thought1,
-            action1=action1,
-            thought2=thought2,
-            action2=action2,
+            thought1=a.thought,
+            action1=a.action,
+            thought2=b.thought,
+            action2=b.action,
         )
-
-    def _format_reward_prompt(self, rr: RewardRequest) -> Tuple[str, str]:
-        system_text = f"{pairwise_role}\n{pairwise_eval_criteria}"
-        user_text = pairwise_user_template.format(
-            intent=rr.intent,
-            observation=rr.observation,
-            trajectory=rr.trajectory or "(empty)",
-            start_url=rr.start_url,
-            current_url=rr.current_url,
-            thought1=rr.thought1,
-            action1=rr.action1,
-            thought2=rr.thought2,
-            action2=rr.action2,
-        )
-        return system_text, user_text
-
-    # ---------------------------- Init helpers ----------------------------
-    def _load_policy_prompt(self) -> None:
-        try:
-            current_dir = os.path.dirname(os.path.abspath(__file__))
-            json_path = os.path.join(current_dir, "prompts", "jsons", "enhanced_actree.json")
-            with open(json_path, "r", encoding="utf-8") as f:
-                self._policy_prompt = json.load(f)
-            self.logger.info("Loaded policy prompt JSON: %s", json_path)
-        except Exception as e:
-            self._policy_prompt = None
-            self.logger.warning("Failed to load policy prompt JSON: %s", e)
-
-    def _log_reward_prompt(self, system_text: str, user_text: str, round_idx: int, pair_idx: int) -> None:
-        self.logger.info(_hr(f"====REWARD SYSTEM PROMPT (Round {round_idx}, Pair {pair_idx})====\n") + system_text)
-        self.logger.info(_hr(f"====REWARD USER PROMPT (Round {round_idx}, Pair {pair_idx})====\n") + user_text)
 
     def _score_pair(self, rr: RewardRequest, round_idx: int, pair_idx: int) -> RewardResponse:
-        system_text, user_text = self._format_reward_prompt(rr)
-        self._log_reward_prompt(system_text, user_text, round_idx, pair_idx)
-        # Placeholder decision (undecided). Real impl would call reward LLM and parse.
+        # If reward LLM is configured, use it; otherwise heuristic
+        if self.reward_lm_config is not None:
+            sys_txt, usr_txt = self._format_reward_prompt(rr)
+            # Log reward prompt
+            try:
+                self.logger.info(f"[PROMPT_REWARD_SYSTEM]\n{sys_txt}")
+                self.logger.info(f"[PROMPT_REWARD_USER]\n{usr_txt}")
+            except Exception:
+                pass
+            raw = ""
+            try:
+                api_input = build_api_input_for_text(self.reward_lm_config, sys_txt, usr_txt)
+                raw = call_llm(self.reward_lm_config, api_input)
+            except Exception:
+                raw = ""
+            try:
+                self.logger.info(f"[RAW_REWARD] {raw}")
+            except Exception:
+                pass
+            decision = self._parse_reward_decision(raw)
+            winner = None
+            if decision == PairwiseDecision.RESPONSE_1:
+                winner = 1
+            elif decision == PairwiseDecision.RESPONSE_2:
+                winner = 2
+            return RewardResponse(
+                raw_response=raw,
+                decision=decision,
+                winner=winner,
+                think=None,
+                criteria=None,
+                analysis=None,
+                is_valid=decision != PairwiseDecision.UNDECIDED,
+                parse_errors=[] if decision != PairwiseDecision.UNDECIDED else ["undecided"],
+            )
+
+        # No heuristic fallback — if reward LLM is not configured or failed, stay undecided
         return RewardResponse(
             raw_response="",
             decision=PairwiseDecision.UNDECIDED,
@@ -355,42 +376,149 @@ class RewardGuidedAgent(Agent):
             criteria=None,
             analysis=None,
             is_valid=False,
-            parse_errors=[],
+            parse_errors=["no reward_lm_config"],
         )
 
-    def _knockout(self, base_req: PolicyRequest, candidates: List[PolicyResponse]) -> Optional[PolicyResponse]:
-        """King-of-the-hill tournament: champion challenges the next candidate sequentially.
+    def _knockout(self, base_req: PlanRequest, candidates: List[BlockInfo]) -> Optional[BlockInfo]:
+        """Single-elimination tournament bracket with pairwise matches each round.
 
-        - Start with the first candidate as champion.
-        - For each subsequent candidate, run a single pairwise reward comparison.
-        - The winner becomes/keeps the champion.
-        - Final champion is returned.
+        - Use up to 16 candidates (first 16).
+        - Pair them two-by-two: (0 vs 1), (2 vs 3), ...
+        - Winners advance to the next round. If odd count, last advances by bye.
+        - Continue until one winner remains.
         """
         if not candidates:
-            self.logger.info("No policy candidates; skipping knockout.")
             return None
         if len(candidates) == 1:
-            self.logger.info("Single candidate; knockout skipped. Winner = #0")
             return candidates[0]
 
-        champion_idx = 0
-        self.logger.info(_hr("====KING-OF-HILL START====") + f"Initial champion: #0")
-        pair_idx = 0
-        for challenger_idx in range(1, len(candidates)):
-            ra = candidates[champion_idx]
-            rb = candidates[challenger_idx]
-            rr = self._build_reward_request(base_req, ra, rb)
-            self.logger.info(f"Match {pair_idx}: champion #{champion_idx} vs challenger #{challenger_idx}")
-            score = self._score_pair(rr, round_idx=1, pair_idx=pair_idx)
-            if score.winner == 2 or score.decision == PairwiseDecision.RESPONSE_2:
-                self.logger.info(f"Champion replaced: new champion #{challenger_idx}")
-                champion_idx = challenger_idx
-            else:
-                self.logger.info(f"Champion stays: #{champion_idx} (tie -> champion wins by default)")
-            pair_idx += 1
+        current: List[BlockInfo] = candidates[:16]
+        round_idx = 0
+        while len(current) > 1:
+            next_round: List[BlockInfo] = []
+            pair_idx = 0
+            i = 0
+            while i < len(current):
+                if i + 1 >= len(current):
+                    # Bye for the last unpaired candidate
+                    next_round.append(current[i])
+                    break
+                a = current[i]
+                b = current[i + 1]
+                rr = self._build_reward_request(base_req, a, b)
+                # Log pairwise comparison context
+                try:
+                    a_desc = self._describe_action(a.action)
+                    b_desc = self._describe_action(b.action)
+                    self.logger.info(f"[KO_PAIR] round={round_idx} pair={pair_idx}\nA: {a_desc}\nB: {b_desc}")
+                except Exception:
+                    pass
+                score = self._score_pair(rr, round_idx=round_idx, pair_idx=pair_idx)
+                winner_tag = "A"
+                if score.winner == 2 or score.decision == PairwiseDecision.RESPONSE_2:
+                    next_round.append(b)
+                    winner_tag = "B"
+                else:
+                    next_round.append(a)
+                pair_idx += 1
+                # Log decision summary
+                try:
+                    self.logger.info(
+                        f"[KO_DECISION] round={round_idx} pair={pair_idx-1} winner={winner_tag} decision={score.decision}\n"
+                        f"  A: {a_desc}\n  B: {b_desc}"
+                    )
+                except Exception:
+                    pass
+                i += 2
+            current = next_round
+            round_idx += 1
+        return current[0]
 
-        self.logger.info(_hr("KING-OF-HILL RESULT") + f"Winner index: #{champion_idx}")
-        return candidates[champion_idx]
+    # ---------------------------- Step 3: Notes/AGGREGATE Update ----------------------------
+    def _update_aggregate_via_llm(self, winner_action: str) -> None:
+        # If note LLM is not configured, just set plan_next and return
+        try:
+            if self.note_lm_config is None:
+                prev = self.rt.get_aggregate() or AggregateInfo(note=[], evidence=[], plan_next="", answer_ready=False)
+                prev.plan_next = winner_action
+                self.rt.set_aggregate(prev)
+                return
+        except Exception:
+            pass
+
+        # System and user prompts
+        system_text = f"{role_note_taker_agg}\n{note_taker_rules_v1}"
+        last_agg_json = "{}"
+        try:
+            ag = self.rt.get_aggregate()
+            if ag is not None:
+                last_agg_json = json.dumps(ag.dict(), ensure_ascii=False)
+        except Exception:
+            pass
+
+        user_text = context_note_taker_v1.format(
+            intent=self.rt.get_intent() or "",
+            observation=self._compose_observation_from_nodes(self.rt.get_obs_nodes_info()),
+            last_aggregate=last_agg_json,
+            action=winner_action or "None",
+            start_url=self.rt.get_start_url() or "",
+            current_url=self.rt.get_current_url() or "",
+        )
+
+        # Log note prompt (system and user)
+        try:
+            self.logger.info(f"[PROMPT_NOTE_SYSTEM]\n{system_text}")
+            self.logger.info(f"[PROMPT_NOTE_USER]\n{user_text}")
+        except Exception:
+            pass
+
+        # Build API input and call LLM
+        raw = ""
+        try:
+            api_input = build_api_input_for_text(self.note_lm_config, system_text, user_text)
+            raw = call_llm(self.note_lm_config, api_input)
+        except Exception:
+            raw = ""
+        # Log raw note LLM response
+        try:
+            self.logger.info(f"[RAW_NOTE] {raw}")
+        except Exception:
+            pass
+
+        # Parse AGGREGATE JSON
+        new_agg: AggregateInfo | None = None
+        if isinstance(raw, str) and raw.strip():
+            try:
+                import re as _re
+                m = _re.search(r"\{[\s\S]*\}", raw)
+                if m:
+                    data = json.loads(m.group(0))
+                    payload = data.get("AGGREGATE", data)
+                    if isinstance(payload, dict):
+                        # Normalize fields
+                        note = payload.get("note") or []
+                        evidence = payload.get("evidence") or []
+                        plan_next = payload.get("plan_next") or ""
+                        answer_ready = payload.get("answer_ready") if isinstance(payload.get("answer_ready"), bool) else False
+                        new_agg = AggregateInfo(
+                            note=list(note) if isinstance(note, list) else [],
+                            evidence=list(evidence) if isinstance(evidence, list) else [],
+                            plan_next=str(plan_next),
+                            answer_ready=bool(answer_ready),
+                        )
+            except Exception:
+                new_agg = None
+
+        # Apply update or fallback
+        try:
+            if new_agg is None:
+                prev = self.rt.get_aggregate() or AggregateInfo(note=[], evidence=[], plan_next="", answer_ready=False)
+                prev.plan_next = winner_action
+                self.rt.set_aggregate(prev)
+            else:
+                self.rt.set_aggregate(new_agg)
+        except Exception:
+            pass
 
     # ---------------------------- Public API ----------------------------
     @beartype
@@ -401,61 +529,53 @@ class RewardGuidedAgent(Agent):
         meta_data: Dict[str, Any],
         output_response: bool = False,
     ) -> Action:
-        # Step 0: Update runtime/meta state
-        self.runtime.step += 1
-        self._update_meta(trajectory, intent, meta_data)
 
-        # Stage 1: Build policy request and log prompt
-        policy_req = self._build_policy_request()
-        sys_txt, usr_txt = self._format_policy_prompt(policy_req)
-        self._log_policy_prompt(sys_txt, usr_txt)
+        # Stage 1: BLOCK candidates
+        policy_req = self._build_sample_request()
+        candidates = self._sample_block_candidates(policy_req)
+        self.rt.set_block_candidates(candidates)
 
-        # Stage 1 sampling (placeholder)
-        candidates = self._sample_policy_candidates(policy_req)
-        self.runtime.policy_candidates = candidates
-
-        # Stage 2: Knockout (placeholder scoring)
+        # Stage 2: Knockout
         winner = self._knockout(policy_req, candidates)
-        self.runtime.selected_policy = winner
+        self.rt.set_selected_block(winner)
 
-        # Attach last checkpoint/aggregate if available
-        if winner and winner.checkpoint:
-            self.runtime.last_checkpoint = winner.checkpoint
-        if winner and winner.aggregate:
-            self.runtime.last_aggregate = winner.aggregate
+        if not winner:
+            raise ValueError("No candidate actions available")
 
-        # Append chosen thought-action to meta.trajectory for future rounds
-        if winner and winner.block:
+        
+        # Defer trajectory updates until after environment executes the action
+
+        # Minimal thought-only log for the winner
+        try:
+            self.logger.info(f"winner: [THOUGHT] {winner.thought} [ACTION] {winner.action}")
+        except Exception as e:
+            raise ValueError(f"Failed to log winner thought: {winner.thought}") from e
+
+
+        # Parse action
+        try:
+            action = create_id_based_action(winner.action)
+        except Exception as e:
+            raise ValueError(f"Failed to parse winner action: {winner.action}") from e
+
+        # Execute in browser environment and update runtime
+        if self.rt.has_environment():
             try:
-                tap = ThoughtActionPair(
-                    thought=winner.block.thought or "",
-                    action=winner.block.action or "",
-                )
-                self.runtime.meta.trajectory.append(tap)
+                self.rt.execute_action(action, thought=winner.thought, action_str=winner.action)
+            except Exception as e:
+                # Log and continue to avoid aborting the run
+                try:
+                    self.logger.error(f"Environment execution failed: {e}")
+                except Exception:
+                    pass
+        
+        # Step 3: Update Aggregate with LLM (never fail the turn)
+        try:
+            self._update_aggregate_via_llm(winner.action)
+        except Exception as e:
+            try:
+                self.logger.error(f"Note update failed: {e}")
             except Exception:
                 pass
 
-        # Helper to parse a raw BLOCK.action string
-        def _try_parse(raw_action: str) -> Optional[Action]:
-            s = raw_action.strip()
-            if s.startswith("```") and s.endswith("```"):
-                s = s[3:-3].strip()
-            else:
-                s = s.strip("`").strip()
-            try:
-                return create_id_based_action(s)
-            except Exception:
-                return None
-
-        # First try: parse winner action
-        if winner and winner.block and isinstance(winner.block.action, str):
-            parsed = _try_parse(winner.block.action)
-            if parsed is not None:
-                return parsed
-            else:
-                self.logger.warning("Failed to parse winner action; trying alternates.")
-
-        # If nothing parsed, raise to surface the issue instead of silently emitting NONE
-        raise ValueError("Failed to parse any candidate action (winner and alternates)")
-
-
+        return action

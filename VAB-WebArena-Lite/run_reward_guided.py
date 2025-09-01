@@ -8,7 +8,6 @@ import os
 import random
 import time
 from pathlib import Path
-from typing import List, Optional
 
 from beartype import beartype
 
@@ -147,6 +146,13 @@ def main() -> None:
         selected_config_file = Path(args.test_config_file)
         with open(selected_config_file, "r") as f:
             test_config = json.load(f)
+        # If storage_state path is provided but missing, null it to avoid login dependency
+        try:
+            storage_state = test_config.get("storage_state")
+            if storage_state and not Path(storage_state).exists():
+                test_config["storage_state"] = None
+        except Exception:
+            pass
     else:
         pool_path = Path(args.task_pool)
         if not pool_path.exists():
@@ -209,7 +215,6 @@ def main() -> None:
     # Extract task information
     task_name = f"Task {test_config.get('task_id', 'Unknown')}"
     intent = test_config.get("intent", "Complete the task")
-    meta_data = test_config.get("meta_data", {})
     start_url = test_config.get("start_url")
     
     logger.info(f"Starting task: {task_name}")
@@ -252,10 +257,13 @@ def main() -> None:
         try:
             policy_model = getattr(getattr(agent, "policy_lm_config", None), "model", None)
             reward_model = getattr(getattr(agent, "reward_lm_config", None), "model", None)
+            note_model = getattr(getattr(agent, "note_lm_config", None), "model", None)
             if policy_model:
                 logger.info(f"Policy model: {policy_model}")
             if reward_model:
                 logger.info(f"Reward model: {reward_model}")
+            if note_model:
+                logger.info(f"Note model: {note_model}")
         except Exception:
             pass
             
@@ -269,7 +277,7 @@ def main() -> None:
         slow_mo=0,
         observation_type="accessibility_tree",
         current_viewport_only=True,
-        viewport_size={"width": 1280, "height": 2048},
+        viewport_size={"width": 1024, "height": 768},
         save_trace_enabled=True,
         sleep_after_execution=0.0,
         captioning_fn=None,
@@ -280,35 +288,15 @@ def main() -> None:
         # Reset environment
         obs, info = env.reset(options={"config_file": str(selected_config_file)})
         state_info: StateInfo = {"observation": obs, "info": info}
+        # Bind env to agent runtime and initialize step-0 checkpoint/meta from reset info
+        try:
+            agent.rt.set_environment(env)  # type: ignore[attr-defined]
+            agent.rt.initialize_from_reset_info(info=info, intent=intent, start_url=test_config.get("start_url"))  # type: ignore[attr-defined]
+        except Exception:
+            pass
         # ThoughtActionPair trajectory (not used yet); keep empty
         trajectory: Trajectory = []
-        # Initialize runtime meta fields expected by the new agent
-        def extract_obs_nodes_info(inf: dict) -> dict:
-            try:
-                om = inf.get("observation_metadata", {})
-                if isinstance(om.get("obs_nodes_info"), dict):
-                    return om.get("obs_nodes_info")
-                if isinstance(om.get("text", {}), dict) and isinstance(om.get("text", {}).get("obs_nodes_info"), dict):
-                    return om.get("text", {}).get("obs_nodes_info")
-                if isinstance(om.get("image", {}), dict) and isinstance(om.get("image", {}).get("obs_nodes_info"), dict):
-                    return om.get("image", {}).get("obs_nodes_info")
-            except Exception:
-                pass
-            return {}
-
-        def extract_current_url(inf: dict) -> str:
-            try:
-                page = inf.get("page")
-                if hasattr(page, "url"):
-                    return page.url
-            except Exception:
-                pass
-            return test_config.get("start_url", "")
-
-        meta_data["start_url"] = test_config.get("start_url", meta_data.get("start_url"))
-        meta_data["current_url"] = extract_current_url(info)
-        meta_data["obs_nodes_info"] = extract_obs_nodes_info(info)
-        meta_data["action_history"] = ["None"]
+        # RuntimeManager holds state; no external meta_data needed
 
         step_idx = 0
         final_answer: str = ""
@@ -317,41 +305,37 @@ def main() -> None:
             
             # Generate next action
             try:
-                # Refresh per-step meta for the agent
-                meta_data["current_url"] = extract_current_url(state_info["info"])  # type: ignore[index]
-                meta_data["obs_nodes_info"] = extract_obs_nodes_info(state_info["info"])  # type: ignore[index]
-
                 action = agent.next_action(
                     trajectory=trajectory,
                     intent=intent,
-                    meta_data=meta_data,
+                    meta_data={},
                     output_response=args.output_response,
                 )
             except Exception as e:
                 logger.error(f"Error generating action at step {step_idx}: {e}")
                 action = create_send_message_to_user_action(f"ERROR: {str(e)}")
 
+            # Build human-readable action meaning using current observation metadata
             try:
-                action_type_val = action.get("action_type")
-                element_id_val = action.get("element_id", "")
-                answer_val = action.get("answer", "")
-                logger.info(f"Generated action: {action_type_val} [{element_id_val}] {answer_val}")
+                action_desc = get_action_description(
+                    action,
+                    state_info.get("info", {}).get("observation_metadata", {}),
+                    action_set_tag=getattr(agent, "action_set_tag", "id_accessibility_tree"),
+                    prompt_constructor=getattr(agent, "prompt_constructor", None),
+                )
             except Exception:
-                logger.info(f"Generated action: {str(action)}")
+                action_desc = str(action)
+
+            # Log the generated action with human-readable meaning
+            logger.info(f"Generated action: {action_desc}")
+            
             # Per-step summary: concise action + reward score
             try:
-                action_type = action.get("action_type")
-                if action_type is not None:
-                    action_name = str(action_type).split(".")[-1].lower()
-                else:
-                    action_name = "unknown"
-                element_id = action.get("element_id", "")
-                concise = f"{action_name} [{element_id}]" if element_id else action_name
                 reward_score = action.get("reward_score")
                 if reward_score is not None:
-                    logger.info(f"Step {step_idx + 1} chosen: {concise} (score={reward_score})")
+                    logger.info(f"Step {step_idx + 1} chosen: {action_desc} (score={reward_score})")
                 else:
-                    logger.info(f"Step {step_idx + 1} chosen: {concise}")
+                    logger.info(f"Step {step_idx + 1} chosen: {action_desc}")
             except Exception:
                 pass
             trajectory.append(action)
@@ -362,18 +346,7 @@ def main() -> None:
                 final_answer = message
                 print(f"\n=== Final Answer Candidate ===\n{message}\n")
 
-            # Get action description for history
-            try:
-                action_str = get_action_description(
-                    action,
-                    state_info["info"].get("observation_metadata", {}),
-                    action_set_tag=getattr(agent, "action_set_tag", "id_accessibility_tree"),
-                    prompt_constructor=getattr(agent, "prompt_constructor", None),
-                )
-            except Exception:
-                action_str = str(action)
-
-            meta_data["action_history"].append(action_str)
+            # Optional: reuse action_desc for any downstream logs if needed
 
             # Check for stop action
             if action["action_type"] == ActionTypes.SEND_MESSAGE_TO_USER:
@@ -385,15 +358,14 @@ def main() -> None:
                         print(f"\n=== Final Answer ===\n{final_answer}\n")
                 break
 
-            # Step environment
-            obs, _, terminated, _, info = env.step(action)
-            state_info = {"observation": obs, "info": info}
-            trajectory.append(state_info)
-
-            if terminated:
-                logger.info("Environment signaled termination.")
-                trajectory.append(create_send_message_to_user_action(final_answer))
-                break
+            # Environment step is executed by the agent's RuntimeManager; refresh state_info from env for logging if needed
+            try:
+                # Minimal refresh to keep downstream consumers happy
+                obs, _, _, _, info = env.step({"action_type": "noop"})  # type: ignore[arg-type]
+                state_info = {"observation": obs, "info": info}
+                trajectory.append(state_info)
+            except Exception:
+                pass
 
             step_idx += 1
             

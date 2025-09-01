@@ -24,30 +24,25 @@ The URL provides clues about the user's position in the application flow. Use bo
 [The Begin of Response 1]\n
 THOUGHT:
 {thought1}
-
 ACTION:
 {action1}\n
 [The End of Response 1]\n
 [The Begin of Response 2]\n
 THOUGHT:
 {thought2}
-
 ACTION:
 {action2}\n
 [The End of Response 2]\n
-
 ### Output Instructions ###
 Format your output strictly using the following XML-style tags:
-<think>Outline your reasoning process and compare the responses step by step before applying the criteria.</think>
+<State>Summarize the current state based on the URL, AXTree, and previous actions. Include what page the user is currently on, and what relevant UI elements or information are visible.</State>
 <Criteria>Other potential criteria specific to the query and the context, and the weights of each criteria.</Criteria>
-<Analysis>Compare Response 1 and Response 2 in detail according to the Criteria.</Analysis>
+<Analysis>Compare Response 1 and Response 2 in detail according to the <State> and <Criteria>.</Analysis>
 <Answer>Response 1 or Response 2</Answer>
-
 Rules for <Answer>:
 - If Response 1 is better, output exactly: <Answer>Response 1</Answer>
 - If Response 2 is better, output exactly: <Answer>Response 2</Answer>
-
-Important Notes:  
-- Be objective and base your evaluation strictly on the content of the responses. 
+Important Notes:
+- Be objective and base your evaluation strictly on the content of the responses.
 - Do not let the response order, length bias your judgment.
 """

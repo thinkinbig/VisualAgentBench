@@ -1,34 +1,46 @@
-"""This module is adapt from https://github.com/zeno-ml/zeno-build"""
-try:
-    from .providers.gemini_utils import generate_from_gemini_completion
-except Exception:
-    print('Google Cloud not set up, skipping import of providers.gemini_utils.generate_from_gemini_completion')
+"""Lightweight llms package init.
 
-# Guard optional Hugging Face dependency to avoid import-time failure
-try:
-    from .providers.hf_utils import generate_from_huggingface_completion
-    _HAS_HF = True
-except Exception:
-    print('Hugging Face text-generation not set up, skipping import of providers.hf_utils.generate_from_huggingface_completion')
-    _HAS_HF = False
-    def generate_from_huggingface_completion(*args, **kwargs):  # type: ignore[override]
-        raise ImportError("HuggingFace provider unavailable. Install 'text-generation' or configure HF backend.")
+Avoid importing provider backends at import time to prevent optional dependency
+errors during unrelated imports (e.g., llms.types).
+"""
 
-from .providers.openai_utils import (
-    generate_from_openai_chat_completion,
-    generate_from_openai_completion,
-)
-from .providers.api_utils import (
-    generate_with_api,
-)
-from .utils import call_llm
+from importlib import import_module
+from typing import Any
 
 __all__ = [
     "generate_from_openai_completion",
     "generate_from_openai_chat_completion",
+    "generate_with_api",
+    "generate_from_huggingface_completion",
+    "generate_from_gemini_completion",
     "call_llm",
+    "lm_config",
 ]
-if _HAS_HF:
-    __all__.append("generate_from_huggingface_completion")
-if 'generate_from_gemini_completion' in globals():
-    __all__.append("generate_from_gemini_completion")
+
+
+def __getattr__(name: str) -> Any:  # PEP 562 lazy attribute access
+    if name in {"generate_from_openai_completion", "generate_from_openai_chat_completion"}:
+        mod = import_module("llms.providers.openai_utils")
+        return getattr(mod, name)
+    if name == "generate_with_api":
+        mod = import_module("llms.providers.api_utils")
+        return getattr(mod, name)
+    if name == "call_llm":
+        mod = import_module("llms.utils")
+        return getattr(mod, name)
+    if name == "lm_config":
+        mod = import_module("llms.lm_config")
+        return mod
+    if name == "generate_from_huggingface_completion":
+        try:
+            mod = import_module("llms.providers.hf_utils")
+            return getattr(mod, name)
+        except Exception as e:
+            raise ImportError("HuggingFace provider unavailable. Install required dependencies.") from e
+    if name == "generate_from_gemini_completion":
+        try:
+            mod = import_module("llms.providers.gemini_utils")
+            return getattr(mod, name)
+        except Exception as e:
+            raise ImportError("Gemini provider unavailable. Configure Google Cloud to enable it.") from e
+    raise AttributeError(f"module 'llms' has no attribute {name!r}")
