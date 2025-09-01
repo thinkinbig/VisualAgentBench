@@ -182,6 +182,25 @@ class RewardGuidedAgent(Agent):
                 })
         return elems
 
+    def _is_valid_action(self, action_str: str) -> bool:
+        try:
+            s = (action_str or "").strip()
+            # click/type/hover must reference existing AXTREE id
+            m = re.match(r"^(click|type|hover)\s*\[([^\]]+)\]", s, flags=re.IGNORECASE)
+            if m:
+                elem_id = m.group(2).strip()
+                nodes = self.rt.get_obs_nodes_info()
+                return isinstance(nodes, dict) and elem_id in nodes
+            # goto must include an http(s) URL inside brackets
+            g = re.match(r"^goto\s*\[([^\]]+)\]", s, flags=re.IGNORECASE)
+            if g:
+                url = g.group(1).strip().lower()
+                return url.startswith("http://") or url.startswith("https://")
+            # press/scroll/go_back/go_forward/send_msg_to_user are considered syntactically valid here
+            return True
+        except Exception:
+            return False
+
     def _format_reward_prompt(self, rr: RewardRequest) -> tuple[str, str]:
         """Build system/user texts for reward LLM."""
         system_text = (
@@ -296,6 +315,10 @@ class RewardGuidedAgent(Agent):
                 attempts += 1
                 continue
             action_str = blk.action.strip().strip("`")
+            # Hard-filter invalid ids/urls
+            if not self._is_valid_action(action_str):
+                attempts += 1
+                continue
             if action_str in seen_actions:
                 attempts += 1
                 continue

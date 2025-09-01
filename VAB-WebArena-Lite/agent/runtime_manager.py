@@ -1,4 +1,5 @@
 from typing import Optional, Dict, Any, List, Union, TYPE_CHECKING
+import logging
 
 from llms.types import ThoughtActionPair
 
@@ -219,6 +220,12 @@ class RuntimeManager:
         )
         # Append trajectory item
         self.append_trajectory(thought=thought, action=action_str)
+
+        # Informational log after action execution
+        try:
+            logging.getLogger("reward_guided_logger").info("action performed")
+        except Exception:
+            pass
 
     # Checkpoint controls (environment-driven)
     def set_checkpoint(self, checkpoint: CheckpointInfo) -> None:
