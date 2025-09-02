@@ -305,10 +305,24 @@ def main() -> None:
             
             # Generate next action
             try:
+                # Build meta_data with start/current URL and any available AXTREE nodes
+                try:
+                    obs_nodes_info = (
+                        info.get("observation_metadata", {})
+                            .get("text", {})
+                            .get("obs_nodes_info", {})
+                    )
+                except Exception:
+                    obs_nodes_info = {}
+
                 action = agent.next_action(
                     trajectory=trajectory,
                     intent=intent,
-                    meta_data={},
+                    meta_data={
+                        "start_url": start_url,
+                        "current_url": start_url,
+                        "obs_nodes_info": obs_nodes_info,
+                    },
                     output_response=args.output_response,
                 )
             except Exception as e:
@@ -317,25 +331,28 @@ def main() -> None:
 
             # Build human-readable action meaning using current observation metadata
             try:
+                # Use the agent's in-sync obs_nodes_info to avoid id mismatches in logs
+                in_sync_meta = getattr(getattr(agent, "rt", None), "get_obs_nodes_info", lambda: {})()
+                observation_metadata = {"text": {"obs_nodes_info": in_sync_meta or {}}}
                 action_desc = get_action_description(
                     action,
-                    state_info.get("info", {}).get("observation_metadata", {}),
+                    observation_metadata,
                     action_set_tag=getattr(agent, "action_set_tag", "id_accessibility_tree"),
                     prompt_constructor=getattr(agent, "prompt_constructor", None),
                 )
             except Exception:
                 action_desc = str(action)
 
-            # Log the generated action with human-readable meaning
-            logger.info(f"Generated action: {action_desc}")
+            # Log the generated action with human-readable meaning at DEBUG to avoid confusion with post-AGGREGATE execution
+            logger.debug(f"Generated action: {action_desc}")
             
             # Per-step summary: concise action + reward score
             try:
                 reward_score = action.get("reward_score")
                 if reward_score is not None:
-                    logger.info(f"Step {step_idx + 1} chosen: {action_desc} (score={reward_score})")
+                    logger.debug(f"Step {step_idx + 1} chosen: {action_desc} (score={reward_score})")
                 else:
-                    logger.info(f"Step {step_idx + 1} chosen: {action_desc}")
+                    logger.debug(f"Step {step_idx + 1} chosen: {action_desc}")
             except Exception:
                 pass
             trajectory.append(action)

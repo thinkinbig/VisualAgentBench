@@ -50,6 +50,9 @@ Note: "#<id>" is the unique identifier at the start of each AXTree line. Use it 
 #### Previous AGGREGATE ####
 {last_aggregate}
 
+#### Previous THOUGHT ####
+{thought}
+
 #### Previous ACTION ####
 {action}
 
@@ -66,7 +69,8 @@ Return STRICTLY the following JSON object (no extra text, no code fences):
   "AGGREGATE": {{
     "note": ["key=value", ...],
     "evidence": ["#<id> <short text> (<why>)", ...],
-    "plan_next": "<short plain-language intent explaining what to do in next step>"
+    "plan_next": "<short plain-language intent explaining what to do in next step>",
+    "answer_ready": false
   }}
 }}
 

@@ -22,7 +22,10 @@ class CheckpointInfo(BaseModel):
     """Checkpoint information from agent response (logging/memory for policy)."""
     step: int = Field(description="Monotonic turn counter (1-based). Increment every agent turn.")
     url: str = Field(description="Canonical current page URL (normalized by the environment).")
-    action: Optional[str] = Field(None, description="The bracket action string the agent just executed, or 'None'.")
+    block: Optional["BlockInfo"] = Field(
+        None,
+        description="The full BLOCK (thought + action) that was executed last turn.",
+    )
     objective: str = Field(description="Echo of the task's OBJECTIVE. Do not rewrite or expand.")
     observation: str = Field(description="AXTREE text of the current page. Include bids and labels.")
 
@@ -45,10 +48,11 @@ class PolicyRequest(BaseModel):
     intent: str = Field(description="Task intent/objective provided to the agent.")
     observation: str = Field(description="AXTREE text of the current page. Include bids and labels.")
     current_url: Optional[str] = Field(None, description="Current page URL at decision time.")
+    thought: Optional[str] = Field(None, description="The thought string, or 'None'.")
     action: Optional[str] = Field(None, description="The action string, or 'None'.")
     start_url: str = Field(description="Start URL of the task/episode.")
 
-    @validator('intent', 'observation', 'action', 'start_url', pre=True, always=True)
+    @validator('intent', 'observation', 'thought', 'action', 'start_url', pre=True, always=True)
     def _strip_strings(cls, v):
         if v is None:
             return v
@@ -60,7 +64,8 @@ class PolicyRequest(BaseModel):
 class PlanRequest(BaseModel):
     aggregate: Optional[AggregateInfo] = Field(default=None, alias="AGGREGATE")
     observation: str
-    action: Optional[ParsedAction] = Field(default=None)
+    thought: Optional[str] = Field(None, description="The preivous thought string, or 'None'.")
+    action: Optional[ParsedAction] = Field(default=None, description="The previous action string, or 'None'.")
 
 class PlanResponse(BaseModel):
     """Complete policy agent response structure (CAB)."""

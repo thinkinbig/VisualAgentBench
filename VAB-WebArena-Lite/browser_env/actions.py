@@ -132,7 +132,7 @@ def action2str(
                 action_str = f"click [{element_id}] where [{element_id}] is {semantic_element}"
             case ActionTypes.TYPE:
                 text = "".join([_id2key[i] for i in action["text"]])
-                action_str = f"type [{element_id}] [{text}] where [{element_id}] is {semantic_element}"
+                action_str = f"type [{element_id}] {text} where [{element_id}] is {semantic_element}"
             case ActionTypes.HOVER:
                 action_str = f"hover [{element_id}] where [{element_id}] is {semantic_element}"
             case ActionTypes.SCROLL:
@@ -172,7 +172,7 @@ def action2str(
             case ActionTypes.TYPE:
                 text = "".join([_id2key[i] for i in action["text"]])
                 action_str = (
-                    f"type [{element_id}] [{text}] where [{element_id}]"
+                    f"type [{element_id}] {text} where [{element_id}]"
                 )
             case ActionTypes.HOVER:
                 action_str = f"hover [{element_id}] where [{element_id}]"
@@ -1419,21 +1419,43 @@ def execute_action(
                 element_id = action["element_id"]
                 element_center = obseration_processor.get_element_center(element_id)  # type: ignore[attr-defined]
                 execute_mouse_click(element_center[0], element_center[1], page)
-                execute_type(action["text"], page)
+
+                # If the last typed key is a newline token, send a real Enter instead
+                keys: list[int] = action["text"]
+                press_enter_after = bool(keys) and _id2key[keys[-1]] == "\n"
+                if press_enter_after:
+                    keys = keys[:-1]
+                if keys:
+                    execute_type(keys, page)
+                if press_enter_after:
+                    execute_key_press("Enter", page)
             elif action["element_role"] and action["element_name"]:
                 element_role = int(action["element_role"])
                 element_name = action["element_name"]
                 nth = action["nth"]
                 execute_focus(element_role, element_name, nth, page)
-                execute_type(action["text"], page)
+                # If the last typed key is a newline token, send a real Enter instead
+                keys: list[int] = action["text"]
+                press_enter_after = bool(keys) and _id2key[keys[-1]] == "\n"
+                if press_enter_after:
+                    keys = keys[:-1]
+                if keys:
+                    execute_type(keys, page)
+                if press_enter_after:
+                    execute_key_press("Enter", page)
             elif action["pw_code"]:
                 parsed_code = parse_playwright_code(action["pw_code"])
                 locator_code = parsed_code[:-1]
                 text = parsed_code[-1]["arguments"][0]
+                # Strip trailing \n to replace with a real Enter press
+                press_enter_after = isinstance(text, str) and text.endswith("\n")
+                text_to_type = text[:-1] if press_enter_after else text
                 # [shuyanzh], don't support action args and kwargs now
                 execute_playwright_type(
-                    text=text, locator_code=locator_code, page=page
+                    text=text_to_type, locator_code=locator_code, page=page
                 )
+                if press_enter_after:
+                    execute_key_press("Enter", page)
             else:
                 raise NotImplementedError(
                     "No proper locator found for type action"
@@ -1561,15 +1583,28 @@ async def aexecute_action(
                 element_name = action["element_name"]
                 nth = action["nth"]
                 await aexecute_focus(element_role, element_name, nth, page)
-                await aexecute_type(action["text"], page)
+                # If the last typed key is a newline token, send a real Enter instead
+                keys: list[int] = action["text"]
+                press_enter_after = bool(keys) and _id2key[keys[-1]] == "\n"
+                if press_enter_after:
+                    keys = keys[:-1]
+                if keys:
+                    await aexecute_type(keys, page)
+                if press_enter_after:
+                    await aexecute_key_press("Enter", page)
             elif action["pw_code"]:
                 parsed_code = parse_playwright_code(action["pw_code"])
                 locator_code = parsed_code[:-1]
                 text = parsed_code[-1]["arguments"][0]
+                # Strip trailing \n to replace with a real Enter press
+                press_enter_after = isinstance(text, str) and text.endswith("\n")
+                text_to_type = text[:-1] if press_enter_after else text
                 # [shuyanzh], don't support action args and kwargs now
                 await aexecute_playwright_type(
-                    text=text, locator_code=locator_code, page=page
+                    text=text_to_type, locator_code=locator_code, page=page
                 )
+                if press_enter_after:
+                    await aexecute_key_press("Enter", page)
             else:
                 raise NotImplementedError(
                     "No proper locator found for type action"
@@ -1794,28 +1829,46 @@ def create_id_based_action(action_str: str) -> Action:
             if not (action_str.endswith("[0]") or action_str.endswith("[1]")):
                 action_str += " [1]"
 
-            match = re.search(
-                r"type ?\[(\d+)\] ?\[(.+)\] ?\[(\d+)\]", action_str
-            )
+            # 1) Strict bracketed form: type [123] [hello world] [1]
+            match = re.search(r"^type ?\[(\d+)\] ?\[(.+)\] ?\[(\d+)\]$", action_str)
             if match:
-                element_id, text, enter_flag = (
-                    match.group(1),
-                    match.group(2),
-                    match.group(3),
-                )
+                element_id, text, enter_flag = match.group(1), match.group(2), match.group(3)
+                if enter_flag == "1":
+                    text += "\n"
+                return create_type_action(text=text, element_id=element_id)
+            # 2) Mixed form with id bracketed but text bare: type [123] hello world [1]
+            match = re.search(r"^type ?\[(\d+)\] ?([^\[]+?) ?\[(\d+)\]$", action_str)
+            if match:
+                element_id, text, enter_flag = match.group(1), match.group(2).strip(), match.group(3)
+                if enter_flag == "1":
+                    text += "\n"
+                return create_type_action(text=text, element_id=element_id)
+            # 3) Fully bare form: type 123 hello world 1
+            match = re.search(r"^type ?(\d+)\s+(.+?)\s+(0|1)$", action_str)
+            if match:
+                element_id, text, enter_flag = match.group(1), match.group(2).strip(), match.group(3)
                 if enter_flag == "1":
                     text += "\n"
                 return create_type_action(text=text, element_id=element_id)
             # Fallback: non-numeric name, assume textbox role
-            match_name = re.search(
-                r"type ?\[(.+?)\] ?\[(.+)\] ?\[(\d+)\]", action_str
-            )
+            # 4) Name with brackets around text: type [Search] [hello] [1]
+            match_name = re.search(r"^type ?\[(.+?)\] ?\[(.+)\] ?\[(\d+)\]$", action_str)
             if match_name:
-                element_name, text, enter_flag = (
-                    match_name.group(1),
-                    match_name.group(2),
-                    match_name.group(3),
-                )
+                element_name, text, enter_flag = match_name.group(1), match_name.group(2), match_name.group(3)
+                if enter_flag == "1":
+                    text += "\n"
+                return create_type_action(text=text, element_role="textbox", element_name=element_name)
+            # 5) Name with bare text: type [Search] hello world [1]
+            match_name = re.search(r"^type ?\[(.+?)\] ?([^\[]+?) ?\[(\d+)\]$", action_str)
+            if match_name:
+                element_name, text, enter_flag = match_name.group(1), match_name.group(2).strip(), match_name.group(3)
+                if enter_flag == "1":
+                    text += "\n"
+                return create_type_action(text=text, element_role="textbox", element_name=element_name)
+            # 6) Name fully bare: type Search hello world 1
+            match_name = re.search(r"^type\s+(.+?)\s+(.+?)\s+(0|1)$", action_str)
+            if match_name:
+                element_name, text, enter_flag = match_name.group(1).strip(), match_name.group(2).strip(), match_name.group(3)
                 if enter_flag == "1":
                     text += "\n"
                 return create_type_action(text=text, element_role="textbox", element_name=element_name)

@@ -102,17 +102,22 @@ class RewardGuidedAgent(Agent):
             intent=self.rt.get_intent(),
             observation=self._compose_observation_from_nodes(self.rt.get_obs_nodes_info()),
             current_url=self.rt.get_current_url(),
-            action=self.rt.get_checkpoint().action if self.rt.get_checkpoint() else None,
+            thought=(self.rt.get_checkpoint().block.thought if (self.rt.get_checkpoint() and getattr(self.rt.get_checkpoint(), "block", None)) else None),
+            action=(self.rt.get_checkpoint().block.action if (self.rt.get_checkpoint() and getattr(self.rt.get_checkpoint(), "block", None)) else None),
             start_url=self.rt.get_start_url(),
         )
         return req
 
     def _format_policy_prompt(self, req: PlanRequest) -> tuple[str, str]:
+        prev_thought = "None"
         prev_action = "None"
         try:
             cp = self.rt.get_checkpoint()
-            if cp and isinstance(cp.action, str) and cp.action.strip():
-                prev_action = cp.action.strip()
+            blk = getattr(cp, "block", None) if cp else None
+            if blk and isinstance(blk.action, str) and blk.action.strip():
+                if isinstance(getattr(blk, "thought", None), str) and blk.thought.strip():
+                    prev_thought = blk.thought.strip()
+                prev_action = blk.action.strip()
         except Exception:
             pass
         aggregate_json = "{}"
@@ -127,6 +132,7 @@ class RewardGuidedAgent(Agent):
             objective=req.intent or "",
             observation=req.observation or "",
             url=req.current_url or "",
+            previous_thought=prev_thought,
             previous_action=prev_action,
             aggregate=aggregate_json,
         )
@@ -150,6 +156,13 @@ class RewardGuidedAgent(Agent):
                         s = action.strip()
                         if s.startswith("```") and s.endswith("```"):
                             s = s[3:-3].strip()
+                        # Normalize common missing-bracket case for goto
+                        try:
+                            mm = _re.match(r"^goto\s+(https?://[^\s\]]+)$", s, flags=_re.IGNORECASE)
+                            if mm:
+                                s = f"goto [{mm.group(1)}]"
+                        except Exception:
+                            pass
                         action = s
                     if isinstance(thought, str) and isinstance(action, str) and action:
                         return BlockInfo(thought=thought, action=action)
@@ -310,11 +323,12 @@ class RewardGuidedAgent(Agent):
                 self.logger.info(f"[RAW_POLICY] {raw}")
             except Exception:
                 pass
+            # Parse BLOCK from response
             blk = self._parse_block_from_response(raw)
-            if blk is None or not isinstance(blk.action, str) or not blk.action.strip():
+            if blk is None:
                 attempts += 1
                 continue
-            action_str = blk.action.strip().strip("`")
+            action_str = (blk.action or "").strip()
             # Hard-filter invalid ids/urls
             if not self._is_valid_action(action_str):
                 attempts += 1
@@ -324,7 +338,7 @@ class RewardGuidedAgent(Agent):
                 continue
             seen_actions.add(action_str)
             # Normalize action field without backticks
-            blk = BlockInfo(thought=blk.thought or "", action=action_str)
+            blk = BlockInfo(thought=blk.thought, action=action_str)
             results.append(blk)
             attempts += 1
         # Log thought with action (and brief meaning)
@@ -479,11 +493,26 @@ class RewardGuidedAgent(Agent):
         except Exception:
             pass
 
+        # Prefer previous checkpoint block (thought + action); fallback to current winner
+        prev_thought = "None"
+        prev_action = winner_action or "None"
+        try:
+            cp = self.rt.get_checkpoint()
+            blk = getattr(cp, "block", None) if cp else None
+            if blk:
+                if isinstance(getattr(blk, "thought", None), str) and blk.thought.strip():
+                    prev_thought = blk.thought.strip()
+                if isinstance(getattr(blk, "action", None), str) and blk.action.strip():
+                    prev_action = blk.action.strip()
+        except Exception:
+            pass
+
         user_text = context_note_taker_v1.format(
             intent=self.rt.get_intent() or "",
             observation=self._compose_observation_from_nodes(self.rt.get_obs_nodes_info()),
             last_aggregate=last_agg_json,
-            action=winner_action or "None",
+            thought=prev_thought,
+            action=prev_action,
             start_url=self.rt.get_start_url() or "",
             current_url=self.rt.get_current_url() or "",
         )
@@ -552,6 +581,12 @@ class RewardGuidedAgent(Agent):
         meta_data: Dict[str, Any],
         output_response: bool = False,
     ) -> Action:
+        # Ensure runtime has fresh intent/meta before building prompts
+        try:
+            # Single entrypoint to set meta and ensure initial AXTree when missing
+            self.rt.bootstrap_turn(trajectory=trajectory, intent=intent, meta_data=meta_data)
+        except Exception:
+            pass
 
         # Stage 1: BLOCK candidates
         policy_req = self._build_sample_request()

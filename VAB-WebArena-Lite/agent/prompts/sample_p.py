@@ -28,7 +28,7 @@ intro = (
     "{\n"
     "  \"BLOCK\": {\n"
     "    \"thought\": \"Why this action advances the goal\",\n"
-    "    \"action\": \"```click [577]```\"\n"
+    "    \"action\": \"click [577]\"\n"
     "  }\n"
     "}\n"
 )
@@ -44,6 +44,7 @@ examples = [
     "[1760] button 'Add to Wish List'\n"
     "[1761] button 'Add to Compare'\n"
     "## URL http://onestopmarket.com/office-products/office-electronics.html\n"
+    "## PREVIOUS THOUGHT The HP Inkjet Fax Machine is visible on this page (#1744) and its price $279.49 is clearly shown (#1749), so returning this value completes the task.\n"
     "## PREVIOUS ACTION scroll [down]\n"
     "## AGGREGATE {\"notes\": [\"site=onestopmarket\", \"category=office-electronics\", \"query=hp_inkjet_fax_machine\", \"hp_fax_item_found=true\", \"price_visible=true\"], \"evidence\": [\"#1744 HP CB782A#ABA 640 Inkjet Fax Machine (title)\", \"#1749 $279.49 (visible price)\"], \"plan_next\": \"Answer the visible price\", \"answer_ready\": true}",
     "{\n"
@@ -62,6 +63,7 @@ examples = [
     "[212] heading 'Search Results'\n"
     "[216] button 'Close'\n"
     "## URL http://openstreetmap.org\n"
+    "## PREVIOUS THOUGHT The search box is focused (#164) on OpenStreetMap; typing \"restaurants near CMU\" and submitting will fetch nearby results, which advances the objective. \n"
     "## PREVIOUS ACTION click [164]\n"
     "## AGGREGATE {\"notes\": [\"site=openstreetmap\", \"page=map\", \"searchbox_focused=true\", \"poi_target=restaurants\", \"location_hint=CMU\"], \"evidence\": [\"#164 Search (focused)\", \"#171 Go (submit)\"] , \"plan_next\": \"Search restaurants near CMU\", \"answer_ready\": false} ",
     "{\n"
@@ -79,6 +81,7 @@ template = (
     "## OBJECTIVE {objective} \n"
     "## AXTREE {observation} \n"
     "## URL {url} \n"
+    "## PREVIOUS THOUGHT {previous_thought} \n"
     "## PREVIOUS ACTION {previous_action} \n"
     "## AGGREGATE {aggregate}\n"
 )
@@ -91,7 +94,7 @@ output_guidelines = (
     "  {\n"
     "    \"BLOCK\": {\n"
     "      \"thought\": \"<why this action advances the goal>\",\n"
-    "      \"action\": \"click [123]\"\n"
+    "      \"action\": \"<action string>\",\n"
     "    }\n"
     "  }\n"
     "- BLOCK must contain exactly ONE action and ONE thought.\n"
@@ -108,6 +111,7 @@ meta_data = {
         "objective",
         "observation",
         "url",
+        "previous_thought",
         "previous_action",
         "aggregate",
     ],
@@ -121,6 +125,7 @@ def render_prompt(
     objective: str,
     observation: str,
     url: str,
+    previous_thought: str,
     previous_action: str,
     aggregate: str,
 ) -> str:
@@ -134,6 +139,7 @@ def render_prompt(
         objective=objective,
         observation=observation,
         url=url,
+        previous_thought=previous_thought,
         previous_action=previous_action,
         aggregate=aggregate,
     )

@@ -20,7 +20,6 @@ else:
 from .types import (
     AgentRuntime,
     Meta,
-    PolicyRequest,
     BlockInfo,
     PairwiseMatch,
     AggregateInfo,
@@ -71,6 +70,76 @@ class RuntimeManager:
         except Exception:
             m.obs_nodes_info = None
 
+    def bootstrap_turn(self, trajectory: Trajectory, intent: str, meta_data: Dict[str, Any]) -> None:
+        """Ensure runtime has intent/URL/AXTREE for this turn.
+
+        Always update meta first from caller, then, if AXTREE is missing and env exists,
+        pull initial page state from env and set checkpoint + meta fields without a second
+        update_meta call.
+        """
+        # First, persist caller-provided intent/urls/trajectory once
+        # Ensure current_url falls back to start_url if not provided by caller
+        try:
+            patched_meta = dict(meta_data or {})
+            if not patched_meta.get("current_url") and patched_meta.get("start_url"):
+                patched_meta["current_url"] = patched_meta.get("start_url")
+        except Exception:
+            patched_meta = meta_data
+        self.update_meta(trajectory=trajectory, intent=intent, meta_data=patched_meta)
+        
+
+        try:
+            if self.get_obs_nodes_info() or not self.has_environment():
+                return
+
+            # Initialize from environment once to obtain URL + AXTREE
+            start_url = meta_data.get("start_url") or meta_data.get("current_url")
+            try:
+                _, info = self._env.reset()  # type: ignore[misc]
+            except TypeError:
+                _, info = self._env.reset()  # type: ignore[misc]
+
+            current_url = self._extract_current_url(info, start_url)
+            obs_nodes = self._extract_obs_nodes_info(info)
+
+            # If reset opened about:blank (or empty), fall back to start_url and defer AXTREE
+            try:
+                is_blank = (not current_url) or str(current_url).strip().lower().startswith("about:blank")
+            except Exception:
+                is_blank = False
+            if is_blank and start_url:
+                current_url = start_url
+                obs_nodes = {}
+            observation_text = ""
+            try:
+                if isinstance(obs_nodes, dict) and obs_nodes:
+                    lines: List[str] = []
+                    for _, node in obs_nodes.items():
+                        t = str(node.get("text", ""))
+                        if t:
+                            lines.append(t)
+                    observation_text = "\n".join(lines)
+            except Exception:
+                observation_text = ""
+
+            # Update checkpoint
+            cp = CheckpointInfo(
+                step=self._runtime.step,
+                url=current_url or "",
+                block=BlockInfo(thought=None, action=None),
+                objective=intent or "",
+                observation=observation_text,
+            )
+            self.set_checkpoint(cp)
+
+            m: Meta = self._runtime.meta
+            m.start_url = start_url or current_url
+            m.current_url = current_url
+            m.obs_nodes_info = obs_nodes
+            
+        except Exception:
+            pass
+
     # State setters/getters
 
     def set_block_candidates(self, candidates: List[BlockInfo]) -> None:
@@ -103,52 +172,6 @@ class RuntimeManager:
 
     def has_environment(self) -> bool:
         return self._env is not None
-
-    # Initialize checkpoint and meta from environment reset info (no action)
-    def initialize_from_reset_info(self, info: Dict[str, Any], intent: str, start_url: Optional[str] = None) -> None:
-        current_url = self._extract_current_url(info, start_url)
-        obs_nodes = self._extract_obs_nodes_info(info)
-        observation_text = ""
-        try:
-            if isinstance(obs_nodes, dict) and obs_nodes:
-                lines: List[str] = []
-                for _, node in obs_nodes.items():
-                    t = str(node.get("text", ""))
-                    if t:
-                        lines.append(t)
-                observation_text = "\n".join(lines)
-        except Exception:
-            observation_text = ""
-
-        cp = CheckpointInfo(
-            step=self._runtime.step,
-            url=current_url or "",
-            action=None,
-            objective=intent or "",
-            observation=observation_text,
-        )
-        self.set_checkpoint(cp)
-
-        self.update_meta(
-            trajectory=self.get_trajectory(),
-            intent=intent,
-            meta_data={
-                "start_url": start_url or current_url,
-                "current_url": current_url,
-                "obs_nodes_info": obs_nodes,
-            },
-        )
-
-    # Convenience: call env.reset() and initialize checkpoint/meta from its info
-    def initialize_from_environment(self, intent: str, start_url: Optional[str] = None, reset_options: Optional[Dict[str, Any]] = None) -> None:
-        if self._env is None or not hasattr(self._env, "reset"):
-            raise RuntimeError("Environment with a reset() method is required to initialize from environment.")
-        try:
-            _, info = self._env.reset(**({"options": reset_options} if reset_options is not None else {}))  # type: ignore[misc]
-        except TypeError:
-            # Some envs accept no kwargs for reset
-            _, info = self._env.reset()  # type: ignore[misc]
-        self.initialize_from_reset_info(info=info, intent=intent, start_url=start_url)
 
     # Environment helpers
     def _extract_obs_nodes_info(self, info: Dict[str, Any]) -> Dict[str, Any]:
@@ -202,7 +225,7 @@ class RuntimeManager:
         cp = CheckpointInfo(
             step=self._runtime.step,
             url=current_url,
-            action=action_str,
+            block=BlockInfo(thought=thought, action=action_str),
             objective=self.get_intent() or "",
             observation=observation_text,
         )
