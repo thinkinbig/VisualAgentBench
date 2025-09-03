@@ -1,0 +1,982 @@
+[
+  {
+    "site": "gitlab",
+    "intent_template": "Tell me the full names of the repositories where I made contributions and they got {{description}} stars?",
+    "remark": null
+  },
+  {
+    "site": "gitlab",
+    "intent_template": "Checkout merge requests assigned to me",
+    "remark": null
+  },
+  {
+    "site": "gitlab",
+    "intent_template": "Checkout merge requests requiring my review",
+    "remark": null
+  },
+  {
+    "site": "gitlab",
+    "intent_template": "Set up a new, empty repository with the name {{project_name}}?",
+    "remark": null
+  },
+  {
+    "site": "gitlab",
+    "intent_template": "Invite {{collaborator_account_list}} as collaborator to {{repo}}",
+    "remark": "569, 570, collaborator不能选的"
+  },
+  {
+    "site": "gitlab",
+    "intent_template": "{{name}} wants to check my dotfile configurations. Please invite him to the repo as a guest.",
+    "remark": "同一个project 邀请不同的人"
+  },
+  {
+    "site": "gitlab",
+    "intent_template": "Who else have access to my repo {{repo}}, show me their usernames",
+    "remark": "只是查看, 比较简单"
+  },
+  {
+    "site": "gitlab",
+    "intent_template": "List all opened issues {{description}}",
+    "remark": "需要选, 并且前后连续性非常大, 有golden demo可能都不太行"
+  },
+  {
+    "site": "gitlab",
+    "intent_template": "Check out the most recent open issues",
+    "remark": null
+  },
+  {
+    "site": "gitlab",
+    "intent_template": "Check out my todos",
+    "remark": null
+  },
+  {
+    "site": "gitlab",
+    "intent_template": "Update the project site's title to \"{{title}}\"",
+    "remark": "看不懂怎么做"
+  },
+  {
+    "site": "gitlab",
+    "intent_template": "Open my latest updated issue that has keyword \"{{keyword}}\" in its title to check if it is closed",
+    "remark": null
+  },
+  {
+    "site": "gitlab",
+    "intent_template": "Get me my RSS feed token",
+    "remark": null
+  },
+  {
+    "site": "gitlab",
+    "intent_template": "Tell me the {{attribute}} of the contributor who has the most commits to branch {{branch_name}}",
+    "remark": null
+  },
+  {
+    "site": "gitlab",
+    "intent_template": "How many commits did {{user}} make on {{date}}?",
+    "remark": null
+  },
+  {
+    "site": "gitlab",
+    "intent_template": "How many commits did {{user}} make {{period}}?",
+    "remark": null
+  },
+  {
+    "site": "gitlab",
+    "intent_template": "How many commits did {{user}} make to {{repo}} on {{date}}?",
+    "remark": null
+  },
+  {
+    "site": "gitlab",
+    "intent_template": "Tell me who has made the most contributions, in terms of number of commits, to the {{repo}} project",
+    "remark": null
+  },
+  {
+    "site": "gitlab",
+    "intent_template": "List the {{attribute}} of the top 3 contributors to {{repo}} repo, ranked by the number of commits?",
+    "remark": null
+  },
+  {
+    "site": "gitlab",
+    "intent_template": "See all public projects",
+    "remark": null
+  },
+  {
+    "site": "gitlab",
+    "intent_template": "Create an issue in {{repo}} repo with title \"{{issue}}\". Assign the issue to {{account}}. Set due date to be {{due}}",
+    "remark": "658，809的url好像跟其他的不一样"
+  },
+  {
+    "site": "gitlab",
+    "intent_template": "Open an issue to {{issue}} in {{repo}}.",
+    "remark": "repo名字没问题，但url中repo前面的地址有问题(661-664)"
+  },
+  {
+    "site": "gitlab",
+    "intent_template": "Show me the command to clone {{repo}} with SSH.",
+    "remark": "296, 297"
+  },
+  {
+    "site": "gitlab",
+    "intent_template": "Follow {{account_list}} on Gitlab",
+    "remark": null
+  },
+  {
+    "site": "gitlab",
+    "intent_template": "set the homepage URL on my GitLab profile to {{url}}",
+    "remark": null
+  },
+  {
+    "site": "gitlab",
+    "intent_template": "Create a new {{scope}} project \"planner\" and add {{account_list}} as members",
+    "remark": null
+  },
+  {
+    "site": "gitlab",
+    "intent_template": "Submit a request to merge {{source_branch}} branch into {{target_branch}} branch, assign {{reviewer}} as the reviewer",
+    "remark": "太难, 且人名搜不到"
+  },
+  {
+    "site": "gitlab",
+    "intent_template": "Open a new issue to discuss the implementation of {{feature}}",
+    "remark": null
+  },
+  {
+    "site": "gitlab",
+    "intent_template": "Create a milestone for the upcoming {{event}} starting on {{start_date}} and ending on {{end_date}}",
+    "remark": null
+  },
+  {
+    "site": "gitlab",
+    "intent_template": "Post \"{{content}}\" for the merge request related to {{mr}} in {{repo}} project",
+    "remark": null
+  },
+  {
+    "site": "gitlab",
+    "intent_template": "Display the list of issues in the {{repo}} repository that have labels related to {{label}}",
+    "remark": 102
+  },
+  {
+    "site": "gitlab",
+    "intent_template": "Add the following users to repo {{repo}} as {{role}}: {{user_list}}",
+    "remark": "576,577, 578都不能做"
+  },
+  {
+    "site": "gitlab",
+    "intent_template": "Fork {{repo}}.",
+    "remark": "398, 522 需要fork 多个(同一个用户的), 无法提前plan"
+  },
+  {
+    "site": "gitlab",
+    "intent_template": "Star the top {{number}} most stared repos in Gitlab",
+    "remark": null
+  },
+  {
+    "site": "gitlab",
+    "intent_template": "Make the LICENSE of {{repo}} to MIT license.",
+    "remark": 736
+  },
+  {
+    "site": "gitlab",
+    "intent_template": "Go to the merge request on {{topic}} I have to review, find if the author of the merge request responded at the end, and reply \"Thank you\" if he did. Otherwise remind him with a simple @.",
+    "remark": null
+  },
+  {
+    "site": "gitlab",
+    "intent_template": "Set my gitlab status as {{status}}.",
+    "remark": null
+  },
+  {
+    "site": "gitlab",
+    "intent_template": "Open my latest created issue that has {{keyword}} in its title to check if it is closed",
+    "remark": null
+  },
+  {
+    "site": "gitlab",
+    "intent_template": "create a new group \"{{name}}\" with members {{members}}",
+    "remark": null
+  },
+  {
+    "site": "gitlab",
+    "intent_template": "Assign the issue regarding {{issue}} in {{repo}} to {{account}}.",
+    "remark": "446, 447, 804, 810, 811"
+  },
+  {
+    "site": "gitlab",
+    "intent_template": "Start a private project {{project_name}} with {{template}} template and add {{account_list}} as members",
+    "remark": null
+  },
+  {
+    "site": "shopping",
+    "intent_template": "Which number to call for the customer service?",
+    "remark": null
+  },
+  {
+    "site": "shopping",
+    "intent_template": "What do customers say about {{product_type}} from {{manufature}}",
+    "remark": null
+  },
+  {
+    "site": "shopping",
+    "intent_template": "What are the main criticisms of this product? Please extract the relevant sentences.",
+    "remark": "这个更容易做"
+  },
+  {
+    "site": "shopping",
+    "intent_template": "List products from {{product_category}} category by {{order}} price",
+    "remark": "需要hover"
+  },
+  {
+    "site": "shopping",
+    "intent_template": "I am doing a market survey for one stop market, show me the most expensive product from {{product_category}} category",
+    "remark": null
+  },
+  {
+    "site": "shopping",
+    "intent_template": "Show me products under ${{price}} in \"{{product_category}}\" category",
+    "remark": null
+  },
+  {
+    "site": "shopping",
+    "intent_template": "Add the product with the lowest per unit price from my open tabs to the shopping cart",
+    "remark": null
+  },
+  {
+    "site": "shopping",
+    "intent_template": "How much I spend {{time}} on shopping at One Stop Market?",
+    "remark": null
+  },
+  {
+    "site": "shopping",
+    "intent_template": "How much did I spend on shopping at One Stop Market {{time}}? They gave me a 20% discount on the total amount for orders exceeding $200 in cash",
+    "remark": null
+  },
+  {
+    "site": "shopping",
+    "intent_template": "I have jaw bruxism problem, show me something that could alleviate the problem.",
+    "remark": null
+  },
+  {
+    "site": "shopping",
+    "intent_template": "Fill the \"contact us\" form in the site for a refund on the {{product}} I bought, stating that it broke after just three days of use. Also, ensure to include the order number #{{order_id}} and the product SKU. Don't submit yet, I will check.",
+    "remark": null
+  },
+  {
+    "site": "shopping",
+    "intent_template": "Draft a refund message via their \"contact us\" form for the {{product}} I bought {{time}}. It broke after three days of use. The shop requires the order id, the reason and the amount to refund in the message. Don't submit yet",
+    "remark": null
+  },
+  {
+    "site": "shopping",
+    "intent_template": "What is the {{option}} configuration of the {{product}} I bought {{time}}",
+    "remark": null
+  },
+  {
+    "site": "shopping",
+    "intent_template": "I previously ordered some {{product}} {{time}} and later cancelled. Can you reorder it for me?",
+    "remark": null
+  },
+  {
+    "site": "shopping",
+    "intent_template": "What is the price range of {{product}} in the One Stop Market?",
+    "remark": null
+  },
+  {
+    "site": "shopping",
+    "intent_template": "How much refund I should expect from my order canlled in {{time}}, including shipping fee",
+    "remark": null
+  },
+  {
+    "site": "shopping",
+    "intent_template": "What is the date when I made my first purchase on this site?",
+    "remark": null
+  },
+  {
+    "site": "shopping",
+    "intent_template": "How much I spent on {{category}} shopping during {{time}}",
+    "remark": null
+  },
+  {
+    "site": "shopping",
+    "intent_template": "Draft an email to the shop owner via their contact us function for a coupon as {{reason}}",
+    "remark": null
+  },
+  {
+    "site": "shopping",
+    "intent_template": "I recently moved, my address is {{address}}, update my information on OneStopShopping accordingly",
+    "remark": null
+  },
+  {
+    "site": "shopping",
+    "intent_template": "Tell me when I last ordered my {{description}}?",
+    "remark": null
+  },
+  {
+    "site": "shopping",
+    "intent_template": "I have a lot of Nintendo Switch game cards now, help me find the best storage option to fit all {{num}} cards",
+    "remark": null
+  },
+  {
+    "site": "shopping",
+    "intent_template": "Buy the highest rated product from the {{product_category}} category within a budget {{dollar_value}}.",
+    "remark": null
+  },
+  {
+    "site": "shopping",
+    "intent_template": "Show the most recent {{status}} order",
+    "remark": null
+  },
+  {
+    "site": "shopping",
+    "intent_template": "Summarize customer reviews for {{product}}.",
+    "remark": null
+  },
+  {
+    "site": "shopping",
+    "intent_template": "Add {{product}} to my wish list",
+    "remark": null
+  },
+  {
+    "site": "shopping",
+    "intent_template": "find discounted items.",
+    "remark": null
+  },
+  {
+    "site": "shopping",
+    "intent_template": "Add a {{product}} to my wish list.",
+    "remark": null
+  },
+  {
+    "site": "shopping",
+    "intent_template": "Change the delivery address for my most recent order to {{address}}.",
+    "remark": null
+  },
+  {
+    "site": "shopping",
+    "intent_template": "Tell me the status of my latest order and when will it arrive",
+    "remark": null
+  },
+  {
+    "site": "shopping",
+    "intent_template": "Rate my recent purchase of {{product}} with {{num_star}} stars, using my nickname {{nickname}}?",
+    "remark": null
+  },
+  {
+    "site": "shopping",
+    "intent_template": "Add this product to my wishlist",
+    "remark": null
+  },
+  {
+    "site": "shopping",
+    "intent_template": "Today is 6/12/2023. Tell me how many fulfilled orders I have {{period}}, and the total amount of money I spent.",
+    "remark": null
+  },
+  {
+    "site": "shopping",
+    "intent_template": "Subscribe to the newsletter of OneStopMarket",
+    "remark": null
+  },
+  {
+    "site": "shopping",
+    "intent_template": "Provide me with the complete names of Bluetooth headphones from Sony, and also share the price range for the available models",
+    "remark": null
+  },
+  {
+    "site": "shopping",
+    "intent_template": "Show me the {{info}} for order number {{order_number}}.",
+    "remark": null
+  },
+  {
+    "site": "shopping",
+    "intent_template": "Show the least expensive {{product}} with a minimum storage capacity of {{min_storage}}.",
+    "remark": null
+  },
+  {
+    "site": "shopping",
+    "intent_template": "Show me the \"{{product}}\" listings by {{sorting_order}}.",
+    "remark": null
+  },
+  {
+    "site": "shopping",
+    "intent_template": "Look up the most recent models of XBox controllers released between 2020-2021?",
+    "remark": null
+  },
+  {
+    "site": "shopping",
+    "intent_template": "I want to browse the products in the {{category}} category",
+    "remark": "需要补充hover这个action"
+  },
+  {
+    "site": "shopping",
+    "intent_template": "Search for \"{{keyword}}\"",
+    "remark": null
+  },
+  {
+    "site": "shopping",
+    "intent_template": "Get the order number of my most recent {{status}} order ",
+    "remark": null
+  },
+  {
+    "site": "shopping",
+    "intent_template": "Tell me the total cost of my latest {{status}} order?",
+    "remark": null
+  },
+  {
+    "site": "shopping",
+    "intent_template": "Buy the best rating product from \"{{category}}\" category with at least 5 reviews and the product is least expensive",
+    "remark": null
+  },
+  {
+    "site": "shopping",
+    "intent_template": "List out reviewers, if exist, who mention about {{description}}",
+    "remark": null
+  },
+  {
+    "site": "shopping",
+    "intent_template": "What is the price range for products from {{brand}}?",
+    "remark": null
+  },
+  {
+    "site": "shopping",
+    "intent_template": "List the customer names who complain about the quality of EYZUTAK phone cases",
+    "remark": "需要翻页来收集所有信息, 不太建议做"
+  },
+  {
+    "site": "shopping",
+    "intent_template": "What is the rating of {{product}}",
+    "remark": null
+  },
+  {
+    "site": "shopping",
+    "intent_template": "Who gave {{stars}} for phone cases from EYZUTAK",
+    "remark": "需要翻页来收集所有信息, 不太建议做"
+  },
+  {
+    "site": "shopping_admin",
+    "intent_template": "Tell me the {{attribute}} of the customer who has the most cancellations in the history",
+    "remark": null
+  },
+  {
+    "site": "shopping_admin",
+    "intent_template": "Mark all {{brand}} shirts on sale",
+    "remark": null
+  },
+  {
+    "site": "shopping_admin",
+    "intent_template": "Modify the address of order #{{order_id}} to {{address}}",
+    "remark": null
+  },
+  {
+    "site": "shopping_admin",
+    "intent_template": "{{quantity}} {{product}} arrived, update the stock",
+    "remark": null
+  },
+  {
+    "site": "shopping_admin",
+    "intent_template": "We've received {{quantity}} {{product}}, please update the inventory.",
+    "remark": null
+  },
+  {
+    "site": "shopping_admin",
+    "intent_template": "We've received {{quantity}}, update the inventory.",
+    "remark": null
+  },
+  {
+    "site": "shopping_admin",
+    "intent_template": "Disable {{product}} from the site, they are facing some quality issues.",
+    "remark": null
+  },
+  {
+    "site": "shopping_admin",
+    "intent_template": "Approve the positive reviews to display in our store.",
+    "remark": null
+  },
+  {
+    "site": "shopping_admin",
+    "intent_template": "Show me the {{information}} of the customer who is the most unhappy with {{product}}",
+    "remark": null
+  },
+  {
+    "site": "shopping_admin",
+    "intent_template": "Show me the customers who have expressed dissatisfaction with {{product}}?",
+    "remark": null
+  },
+  {
+    "site": "shopping_admin",
+    "intent_template": "Show me the name of the customers who have expressed dissatisfaction with {{product}}",
+    "remark": null
+  },
+  {
+    "site": "shopping_admin",
+    "intent_template": "Delete all {{review_type}}",
+    "remark": null
+  },
+  {
+    "site": "shopping_admin",
+    "intent_template": "{{action}} the price of this product by {{amount}}",
+    "remark": null
+  },
+  {
+    "site": "shopping_admin",
+    "intent_template": "How many reviews our shop received {{time}}?",
+    "remark": "[345]:0.0"
+  },
+  {
+    "site": "shopping_admin",
+    "intent_template": "What are the key aspects that the customers don't like about {{product}}",
+    "remark": null
+  },
+  {
+    "site": "shopping_admin",
+    "intent_template": "Tell me the reasons why customers like {{product}}",
+    "remark": null
+  },
+  {
+    "site": "shopping_admin",
+    "intent_template": "Update the product description of {{product}} to highlight the real user positive reviews by quoting the comments",
+    "remark": null
+  },
+  {
+    "site": "shopping_admin",
+    "intent_template": "Update the description of {{product}} to highlight the real user positive reviews by quoting the comments",
+    "remark": null
+  },
+  {
+    "site": "shopping_admin",
+    "intent_template": "Add a new {{option}} option {{value}} to the {{base_setting}} of {{product}}",
+    "remark": null
+  },
+  {
+    "site": "shopping_admin",
+    "intent_template": "Add a new {{option}} {{value}} to {{base_setting}} of {{product}}",
+    "remark": null
+  },
+  {
+    "site": "shopping_admin",
+    "intent_template": "Add a new {{option}} {{value}} to {{base_setting}} {{product}}",
+    "remark": null
+  },
+  {
+    "site": "shopping_admin",
+    "intent_template": "Add new {{option}} {{value}} to {{base_setting}} of {{product}}",
+    "remark": null
+  },
+  {
+    "site": "shopping_admin",
+    "intent_template": "Lookup orders that are {{status}}",
+    "remark": null
+  },
+  {
+    "site": "shopping_admin",
+    "intent_template": "Show all customers",
+    "remark": null
+  },
+  {
+    "site": "shopping_admin",
+    "intent_template": "Add a simple product named {{product}} with {{stock}} in stock, available in size {{size}} and color {{color}}, priced at ${{price}}",
+    "remark": null
+  },
+  {
+    "site": "shopping_admin",
+    "intent_template": "Cancel order {{id}}",
+    "remark": 1
+  },
+  {
+    "site": "shopping_admin",
+    "intent_template": "Draft a new marketing price rule for {{topic}} that offers {{rule}} for all customers",
+    "remark": null
+  },
+  {
+    "site": "shopping_admin",
+    "intent_template": "Preview the {{name}} theme for my shop",
+    "remark": null
+  },
+  {
+    "site": "shopping_admin",
+    "intent_template": "Today is 3/15/2023, generate a {{report}} {{time_span}}",
+    "remark": null
+  },
+  {
+    "site": "shopping_admin",
+    "intent_template": "Presents the monthly count of successful orders {{period}} in MM:COUNT format",
+    "remark": null
+  },
+  {
+    "site": "shopping_admin",
+    "intent_template": "Create an {{type}} report from {{start_date}} to {{end_date}}",
+    "remark": null
+  },
+  {
+    "site": "shopping_admin",
+    "intent_template": "Create a {{type}} report from {{start_date}} to {{end_date}}",
+    "remark": null
+  },
+  {
+    "site": "shopping_admin",
+    "intent_template": "Telll me the grand total of invoice {{id}}.",
+    "remark": null
+  },
+  {
+    "site": "shopping_admin",
+    "intent_template": "Change the page title of \"{{old-heading}}\" page on my site to \"{{heading}}\".",
+    "remark": null
+  },
+  {
+    "site": "shopping_admin",
+    "intent_template": "Which customer has completed the {{quantifier}} number of orders in the entire history?",
+    "remark": null
+  },
+  {
+    "site": "shopping_admin",
+    "intent_template": "Which customer(s) has completed the {{quantifier}} number of orders in the entire history?",
+    "remark": null
+  },
+  {
+    "site": "shopping_admin",
+    "intent_template": "Which customer has placed {{number}} orders in the entire history?",
+    "remark": null
+  },
+  {
+    "site": "shopping_admin",
+    "intent_template": "What is the total count of {{status}} reviews amongst all the reviews?",
+    "remark": null
+  },
+  {
+    "site": "shopping_admin",
+    "intent_template": "What is the top-{{n}} best-selling product in {{year}}",
+    "remark": "这一类看情况，如果刚好跟step用的2022年的例子答案相同就可以做"
+  },
+  {
+    "site": "shopping_admin",
+    "intent_template": "What is the top-{{n}} best-selling brand in {{period}}",
+    "remark": null
+  },
+  {
+    "site": "shopping_admin",
+    "intent_template": "What is the top-{{n}} best-selling product type in {{period}}",
+    "remark": null
+  },
+  {
+    "site": "shopping_admin",
+    "intent_template": "What are the top-{{n}} best-selling product in {{year}}",
+    "remark": null
+  },
+  {
+    "site": "shopping_admin",
+    "intent_template": "What are the top-{{n}} best-selling product in {{period}}",
+    "remark": null
+  },
+  {
+    "site": "shopping_admin",
+    "intent_template": "Notify {{name}} in their most recent pending order with message \"{{message}}\"",
+    "remark": null
+  },
+  {
+    "site": "shopping_admin",
+    "intent_template": "Update order #{{order}} with the {{service}} tracking number {{tracking}}",
+    "remark": null
+  },
+  {
+    "site": "shopping_admin",
+    "intent_template": "List the top {{n}} search terms in my store",
+    "remark": null
+  },
+  {
+    "site": "shopping_admin",
+    "intent_template": "Make all {{product}} as out of stock",
+    "remark": null
+  },
+  {
+    "site": "shopping_admin",
+    "intent_template": "Tell me the the number of reviews that our store received by far that mention term \"{{term}}\"",
+    "remark": null
+  },
+  {
+    "site": "shopping_admin",
+    "intent_template": "Find the customer name and email with phone number {{PhoneNum}}",
+    "remark": "[210]: 1.0;  [211]:0.0 (没更新版)"
+  },
+  {
+    "site": "shopping_admin",
+    "intent_template": "Get the {{attribute}} of the {{status}} order",
+    "remark": null
+  },
+  {
+    "site": "shopping_admin",
+    "intent_template": "Get the total payment amount of the last {{N}} {{status}} orders",
+    "remark": null
+  },
+  {
+    "site": "shopping_admin",
+    "intent_template": "Compare the payment difference of the last {{N}} {{status_1}} orders and {{status_2}} orders",
+    "remark": null
+  },
+  {
+    "site": "shopping_admin",
+    "intent_template": "Give me the {{Attribute}} of the products that have {{N}} units left",
+    "remark": null
+  },
+  {
+    "site": "shopping_admin",
+    "intent_template": "{{action}} the price of {{config}} by {{amount}}",
+    "remark": null
+  },
+  {
+    "site": "shopping_admin",
+    "intent_template": "What brands appear most frequently among the top search terms?",
+    "remark": null
+  },
+  {
+    "site": "shopping_admin",
+    "intent_template": "What's the total number of items sold in the most recent {{k}} orders?",
+    "remark": null
+  },
+  {
+    "site": "reddit",
+    "intent_template": "Open the thread of a trending post on the forum \"{{subreddit}}\" and subscribe.",
+    "remark": "有些帖子点进去不是论坛里的"
+  },
+  {
+    "site": "reddit",
+    "intent_template": "Find a subreddit focused on topics related to {{topic}}, and post my question, \"{{question}}\" there",
+    "remark": "subreddit topic不是精准匹配的"
+  },
+  {
+    "site": "reddit",
+    "intent_template": "Change my reddit bio to \"{{content}}\"",
+    "remark": null
+  },
+  {
+    "site": "reddit",
+    "intent_template": "Create a new forum named {{name}}, with a description of {{description}}, and include {{sidebar_list}} in the sidebar?",
+    "remark": null
+  },
+  {
+    "site": "reddit",
+    "intent_template": "Post a review of my recent reading \"{{book}}\" in the r/books with my comment \"{{content}}\".",
+    "remark": null
+  },
+  {
+    "site": "reddit",
+    "intent_template": "Re-post the image of {{content}} in this page to {{subreddit}} subreddit and note \"from /f/pics\"",
+    "remark": "找不到re-post的按钮"
+  },
+  {
+    "site": "reddit",
+    "intent_template": "Ask for advice about {{issue}} in a subreddit for relations",
+    "remark": null
+  },
+  {
+    "site": "reddit",
+    "intent_template": "Create a discussion post about \"{{topic}}\" in a relevant subreddit and ask users for their opinions with the simple prompt, \"your opinion\"",
+    "remark": "subreddit topic不是精准匹配的. 625太暧昧, onlinelearning多数不会联想到ml或者dl"
+  },
+  {
+    "site": "reddit",
+    "intent_template": "Ask for product recommendations for {{category}} within a budget of {{price}} in {{subreddit}}",
+    "remark": null
+  },
+  {
+    "site": "reddit",
+    "intent_template": "Post a notice on a virtual meetup for {{interest}} enthusiasts on {{date}} in the {{subreddit}} subreddit",
+    "remark": null
+  },
+  {
+    "site": "reddit",
+    "intent_template": "Among the top {{number}} post in \"{{subreddit}}\" forum, {{description}}",
+    "remark": "太难, 需要点开top10帖子"
+  },
+  {
+    "site": "reddit",
+    "intent_template": "Post in {{subreddit}} subreddit about what could machine learning help the correpong field.",
+    "remark": null
+  },
+  {
+    "site": "reddit",
+    "intent_template": "Upvote the newest post in {{subreddit}} subreddit",
+    "remark": "这个是简单版本的upvote"
+  },
+  {
+    "site": "reddit",
+    "intent_template": "Reply to {{position_description}} in this post with \"{{content_description}}\"",
+    "remark": "可能难以判断是哪个人, 需要滚动才能正确点击回复"
+  },
+  {
+    "site": "reddit",
+    "intent_template": "Thumbs down the top {{k}} post ever in {{subreddit}}.",
+    "remark": "太难重复了, 点一次这个帖子就没了"
+  },
+  {
+    "site": "reddit",
+    "intent_template": "Like all submissions created by {{user}} in subreddit {{subreddit}}",
+    "remark": "很难点全"
+  },
+  {
+    "site": "reddit",
+    "intent_template": "Edit my post on {{post}} by adding a line to the body that says \"{{content}}\"",
+    "remark": "需要搜索, 然后敏锐的找到可以edit的帖子. 当做demo还好."
+  },
+  {
+    "site": "reddit",
+    "intent_template": "Tell me the count of comments that have received more downvotes than upvotes for the user who made the latest post on the {{forum}} forum.",
+    "remark": "这个逻辑有点复杂, 我自己不会拆分"
+  },
+  {
+    "site": "reddit",
+    "intent_template": "DisLike all submissions created by {{user}} in subreddit {{subreddit}}",
+    "remark": "all是很难判断的"
+  },
+  {
+    "site": "reddit",
+    "intent_template": "Post my question, \"{{question}}\", in a subreddit where I'm likely to get an answer",
+    "remark": "要自己挑forum, 需要观察环境来判断"
+  },
+  {
+    "site": "reddit",
+    "intent_template": "Post in the most appropriate subreddit and ask for recommendations for {{category}} products within a budget of {{price}}",
+    "remark": "要自己挑forum, 需要观察环境来判断"
+  },
+  {
+    "site": "map",
+    "intent_template": "I am at CMU Pittsburgh, how long it takes to drive to the nearest {{location}}",
+    "remark": "涉及到交通方式"
+  },
+  {
+    "site": "map",
+    "intent_template": "What is the minimum travel time by car from {{location1}} to {{location2}}?",
+    "remark": "route"
+  },
+  {
+    "site": "map",
+    "intent_template": "Where is the nearest {{location}} from {{location2}} {{condition}}",
+    "remark": "涉及到步行"
+  },
+  {
+    "site": "map",
+    "intent_template": "Show me the walking distance from nearby hotels to {{location}} that take at most {{n}} minutes?",
+    "remark": "涉及到步行"
+  },
+  {
+    "site": "map",
+    "intent_template": "Show me the route and driving time from {{city1}} to {{city2}}",
+    "remark": "route需要查询两个城市. 强调可以用自身能力"
+  },
+  {
+    "site": "map",
+    "intent_template": "Tell me the coordinates of {{location}} in DD format",
+    "remark": "search. 这里的问题是3.5不能回答正确的数字."
+  },
+  {
+    "site": "map",
+    "intent_template": "How much time does it take from Pittsburgh to Philadelphia by car?",
+    "remark": "route"
+  },
+  {
+    "site": "map",
+    "intent_template": "Show the route from SCS CMU in Pittsburgh to the location where the Declaration of Independence and Constitution were signed",
+    "remark": "route需要自身知识, 查不到SCS CMU"
+  },
+  {
+    "site": "map",
+    "intent_template": "What is the estimated driving time between {{city1}} and {{city2}}?",
+    "remark": "route需要自身知识"
+  },
+  {
+    "site": "map",
+    "intent_template": "Pull up the description page of {{location}} on Map",
+    "remark": "环境bug"
+  },
+  {
+    "site": "map",
+    "intent_template": "Get directions from {{location/address_1}} to {{location/address_2}} using {{transportation}} options.",
+    "remark": "涉及到步行"
+  },
+  {
+    "site": "map",
+    "intent_template": "Measure distance between {{location/address_1}} and {{location/address_2}} by walking",
+    "remark": "涉及到步行"
+  },
+  {
+    "site": "map",
+    "intent_template": "Find the {{space}} around {{location}}",
+    "remark": "url match只要输入对就行"
+  },
+  {
+    "site": "map",
+    "intent_template": "From my stay at {{hotel}}, what's the estimated driving time to reach {{place}}?",
+    "remark": "route"
+  },
+  {
+    "site": "map",
+    "intent_template": "Given the following locations, {{place_list}}, what would be the optimal route to travel through them all in order to minimize total travel time? Please note the journey begins at the first place listed.",
+    "remark": "有点麻烦, 步骤太多"
+  },
+  {
+    "site": "map",
+    "intent_template": "Where is the nearest {{places}} to {{start}}, and what is the walking distance to it?",
+    "remark": "涉及到步行"
+  },
+  {
+    "site": "map",
+    "intent_template": "Which US states border {{state}}?",
+    "remark": "只依靠自身知识好像就够了"
+  },
+  {
+    "site": "map",
+    "intent_template": "How long does it take to walk from {{start}} to {{end}}?",
+    "remark": "涉及到步行"
+  },
+  {
+    "site": "map",
+    "intent_template": "Tell me the closest {{place1}}(s) to {{place2}}",
+    "remark": "这个必须回答, 不像上面只匹配url"
+  },
+  {
+    "site": "map",
+    "intent_template": "What is the zip code of {{place}}?",
+    "remark": "search"
+  },
+  {
+    "site": "map",
+    "intent_template": "What is the duration required to first walk from {{place_A}} to {{place_B}}, and then drive to {{place_C}}?",
+    "remark": "涉及到步行"
+  },
+  {
+    "site": "map",
+    "intent_template": "Compare the difference in time for walking and driving route from {{start}} to {{end}}",
+    "remark": "涉及到步行"
+  },
+  {
+    "site": "map",
+    "intent_template": "Find the walkway to the closest {{store}} from {{location}}.",
+    "remark": "涉及到步行"
+  },
+  {
+    "site": "map",
+    "intent_template": "Check if the {{place}} in pittsburgh can be reached in one hour by car from {{location}}",
+    "remark": "route"
+  },
+  {
+    "site": "map",
+    "intent_template": "I will arrive {{place}} soon. Provide the name of a {{target1}} in the vicinity, if available. Then, tell me the {{information}} to {{target2}} from the hotel.",
+    "remark": "涉及到步行"
+  },
+  {
+    "site": "map",
+    "intent_template": "Tell me the full address of all {{airport_type}} that are within a driving distance of {{radius}} to {{start}}",
+    "remark": "无法直接显示所有的airports"
+  },
+  {
+    "site": "map",
+    "intent_template": "Who is the {{information}} of {{location}}",
+    "remark": "需要nominatim"
+  },
+  {
+    "site": "map",
+    "intent_template": "I am arriving at Carnegie Mellon University. Find the nearby US Citizenship and Immigration Services and the walking distance to the nearest Social Security Administration from US Citizenship and Immigration Services",
+    "remark": "涉及到步行"
+  },
+  {
+    "site": "map",
+    "intent_template": "I am arriving at Pittsburgh Airport. Show me the name of a Hyatt hotel if there is any nearby. Tell me the names of supermarkets that are within 15mins driving from the hotel",
+    "remark": "无法搜索到"
+  }
+]
