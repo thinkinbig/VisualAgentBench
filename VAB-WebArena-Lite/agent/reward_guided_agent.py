@@ -1,6 +1,7 @@
 import logging
 import json
 import re
+import os
 from typing import Optional, List, Dict, Any
 
 from beartype import beartype
@@ -63,6 +64,28 @@ class RewardGuidedAgent(Agent):
         self.num_samples = max(1, int(num_samples))
 
         self.rt = RuntimeManager()
+        
+        # Load reward prompt configuration
+        self._load_reward_prompt()
+
+    def _load_reward_prompt(self) -> None:
+        """Load reward prompt configuration from JSON file."""
+        try:
+            # Get the directory of this file
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            prompt_path = os.path.join(current_dir, "prompts", "jsons", "reward_evaluation_prompt.json")
+            
+            with open(prompt_path, 'r', encoding='utf-8') as f:
+                self.reward_prompt_config = json.load(f)
+            
+            self.logger.info(f"Loaded reward prompt from {prompt_path}")
+        except Exception as e:
+            self.logger.warning(f"Failed to load reward prompt: {e}")
+            # Fallback to default configuration
+            self.reward_prompt_config = {
+                "system": "You are an expert judge for web navigation actions.\nChoose which candidate action better progresses the objective given the current page.\nOutput strictly JSON: {\"decision\": \"response_1|response_2|undecided\"}.",
+                "user_template": "## OBJECTIVE\n{intent}\n\n## URL\n{current_url}\n\n## START_URL\n{start_url}\n\n## AXTREE\n{observation}\n\n## TRAJECTORY\n{trajectory}\n\n## CANDIDATES\n### RESPONSE_1\nTHOUGHT: {thought1}\nACTION: {action1}\n\n### RESPONSE_2\nTHOUGHT: {thought2}\nACTION: {action2}\n\n## INSTRUCTIONS\nReturn strictly one JSON object: {\"decision\": \"response_1|response_2|undecided\"}"
+            }
 
     # ---------------------------- Utilities ----------------------------
     def _compose_observation_from_nodes(self, nodes: Optional[Dict[str, Any]]) -> str:
@@ -215,25 +238,32 @@ class RewardGuidedAgent(Agent):
             return False
 
     def _format_reward_prompt(self, rr: RewardRequest) -> tuple[str, str]:
-        """Build system/user texts for reward LLM."""
-        system_text = (
+        """Build system/user texts for reward LLM using loaded prompt configuration."""
+        # Use loaded system prompt
+        system_text = self.reward_prompt_config.get("system", 
             "You are an expert judge for web navigation actions.\n"
             "Choose which candidate action better progresses the objective given the current page.\n"
             "Output strictly JSON: {\"decision\": \"response_1|response_2|undecided\"}."
         )
-
-        user_parts = [
-            f"## OBJECTIVE\n{rr.intent}",
-            f"## URL\n{rr.current_url}",
-            f"## START_URL\n{rr.start_url}",
-            f"## AXTREE\n{rr.observation}",
-            f"## TRAJECTORY\n{rr.trajectory}",
-            "## CANDIDATES",
-            f"### RESPONSE_1\nTHOUGHT: {rr.thought1}\nACTION: {rr.action1}",
-            f"### RESPONSE_2\nTHOUGHT: {rr.thought2}\nACTION: {rr.action2}",
-            "## INSTRUCTIONS\nReturn strictly one JSON object: {\"decision\": \"response_1|response_2|undecided\"}"
-        ]
-        user_text = "\n\n".join(user_parts)
+        
+        # Use loaded user template
+        user_template = self.reward_prompt_config.get("user_template", 
+            "## OBJECTIVE\n{intent}\n\n## URL\n{current_url}\n\n## START_URL\n{start_url}\n\n## AXTREE\n{observation}\n\n## TRAJECTORY\n{trajectory}\n\n## CANDIDATES\n### RESPONSE_1\nTHOUGHT: {thought1}\nACTION: {action1}\n\n### RESPONSE_2\nTHOUGHT: {thought2}\nACTION: {action2}\n\n## INSTRUCTIONS\nReturn strictly one JSON object: {\"decision\": \"response_1|response_2|undecided\"}"
+        )
+        
+        # Format user text using template
+        user_text = user_template.format(
+            intent=rr.intent,
+            current_url=rr.current_url,
+            start_url=rr.start_url,
+            observation=rr.observation,
+            trajectory=rr.trajectory,
+            thought1=rr.thought1,
+            action1=rr.action1,
+            thought2=rr.thought2,
+            action2=rr.action2
+        )
+        
         return system_text, user_text
 
     def _parse_reward_decision(self, raw: str) -> PairwiseDecision:

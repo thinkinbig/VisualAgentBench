@@ -7,7 +7,10 @@ intro = (
     "- ## AXTREE a simplified, actionable view of the current page (only visible & interactive nodes). \n"
     "- ## URL the current page URL. \n"
     "- ## PREVIOUS ACTION the action you just performed. \n"
-    "- ## AGGREGATE the previous turn's summaries and working memory. \n"
+    "- ## AGGREGATE is authoritative step memory:\n"
+    "   - If AGGREGATE.stuck=true → execute the escape action\n\n"
+    "   - If AGGREGATE.answer_ready=true → immediately send_msg_to_user with the visible value.\n"
+
 
     "Homepage:\n" 
     "If you want to visit other websites, check out the homepage at http://homepage.com. It has a list of websites you can visit. http://homepage.com/password.html lists all the account name and password for the websites. You can use them to log in to the websites.\n\n"
@@ -24,13 +27,6 @@ intro = (
     "```go_forward```: Navigate to the next page (if a previous 'go_back' action was performed).\n\n"
     "Completion Action:\n"
     "```send_msg_to_user [answer]```: Issue this action when you believe the task is complete. If the objective is to find a text-based answer, provide the answer in the bracket.\n\n"
-    "**Output format (every turn):**\n"
-    "{\n"
-    "  \"BLOCK\": {\n"
-    "    \"thought\": \"Why this action advances the goal\",\n"
-    "    \"action\": \"click [577]\"\n"
-    "  }\n"
-    "}\n"
 )
 
 
@@ -46,7 +42,7 @@ examples = [
     "## URL http://onestopmarket.com/office-products/office-electronics.html\n"
     "## PREVIOUS THOUGHT The HP Inkjet Fax Machine is visible on this page (#1744) and its price $279.49 is clearly shown (#1749), so returning this value completes the task.\n"
     "## PREVIOUS ACTION scroll [down]\n"
-    "## AGGREGATE {\"notes\": [\"site=onestopmarket\", \"category=office-electronics\", \"query=hp_inkjet_fax_machine\", \"hp_fax_item_found=true\", \"price_visible=true\"], \"evidence\": [\"#1744 HP CB782A#ABA 640 Inkjet Fax Machine (title)\", \"#1749 $279.49 (visible price)\"], \"plan_next\": \"Answer the visible price\", \"answer_ready\": true}",
+    "## AGGREGATE {\"notes\": [\"site=onestopmarket\", \"category=office-electronics\", \"query=hp_inkjet_fax_machine\", \"hp_fax_item_found=true\", \"price_visible=true\"], \"evidence\": [\"#1744 HP CB782A#ABA 640 Inkjet Fax Machine (title)\", \"#1749 $279.49 (visible price)\"],  \"stuck\": false, \"answer_ready\": true}",
     "{\n"
     "  \"BLOCK\": {\n"
     "    \"thought\": \"The user is on onestopmarket’s office-electronics page with the HP fax product visible (#1744). The price '$279.49' is clearly shown (#1749), so returning it now completes the task.\",\n"
@@ -65,11 +61,29 @@ examples = [
     "## URL http://openstreetmap.org\n"
     "## PREVIOUS THOUGHT The search box is focused (#164) on OpenStreetMap; typing \"restaurants near CMU\" and submitting will fetch nearby results, which advances the objective. \n"
     "## PREVIOUS ACTION click [164]\n"
-    "## AGGREGATE {\"notes\": [\"site=openstreetmap\", \"page=map\", \"searchbox_focused=true\", \"poi_target=restaurants\", \"location_hint=CMU\"], \"evidence\": [\"#164 Search (focused)\", \"#171 Go (submit)\"] , \"plan_next\": \"Search restaurants near CMU\", \"answer_ready\": false} ",
+    "## AGGREGATE {\"notes\": [\"site=openstreetmap\", \"page=map\", \"searchbox_focused=true\", \"poi_target=restaurants\", \"location_hint=CMU\"], \"evidence\": [\"#164 Search (focused)\", \"#171 Go (submit)\"],  \"stuck\": false, \"answer_ready\": false} ",
     "{\n"
     "  \"BLOCK\": {\n"
     "    \"thought\": \"The user is on OpenStreetMap with the search box focused (#164). To show restaurants near CMU, typing the query and submitting will fetch nearby results.\",\n"
     "    \"action\": \"type [164] [restaurants near CMU] [1]\"\n"
+    "  }\n"
+    "}"
+    ),
+    (
+    # Example 3 — stuck detected: change query
+    "## OBJECTIVE Find a product: makeup brush\n"
+    "## AXTREE [120] heading 'Search'\n"
+    "[164] textbox 'Search' focused: False required: False\n"
+    "[171] button 'Search'\n"
+    "[311] StaticText 'No results found'\n"
+    "## URL http://shop.example.com/search?q=brush\n"
+    "## PREVIOUS THOUGHT The user previously searched for 'brush' and the current page shows 'No results found'. To progress toward finding a makeup brush, the next step involves changing the query to a more specific term. Updating the search to 'makeup brush' aligns with the objective and should yield relevant results.\n"
+    "## PREVIOUS ACTION type [164] [brush] [1]\n"
+    "## AGGREGATE {\"notes\": [\"site=shop_example\", \"query=brush\", \"empty_results=true\"], \"evidence\": [\"#311 No results found (message)\", \"#164 Search (input)\", \"#171 Search (button)\"] ,  \"stuck\": true, \"answer_ready\": false} ",
+    "{\n"
+    "  \"BLOCK\": {\n"
+    "    \"thought\": \"The current page shows 'No results found' after searching for 'brush'. To advance the objective of finding a makeup brush, changing the query to 'makeup brush' is necessary and should produce relevant results.\",\n"
+    "    \"action\": \"type [164] [makeup brush] [1]\"\n"
     "  }\n"
     "}"
     )

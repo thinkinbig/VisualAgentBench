@@ -52,6 +52,8 @@ from browser_env import (
     create_send_message_to_user_action,
 )
 from browser_env.helper_functions import get_action_description
+from evaluation_harness.evaluators import evaluator_router
+from agent.eval_adapter import build_eval_trajectory
 
 # Setup logging
 SCRIPT_DIR = Path(__file__).parent
@@ -204,6 +206,23 @@ def main() -> None:
     except Exception:
         pass
     
+    # Perform auto login (shopping) to generate a fresh storage_state for this run
+    try:
+        from browser_env.auto_login import renew_comb
+        auth_folder = SCRIPT_DIR / ".auth"
+        auth_folder.mkdir(parents=True, exist_ok=True)
+        renew_comb(["shopping"], auth_folder=str(auth_folder))
+        shopping_state = auth_folder / "shopping_state.json"
+        if shopping_state.exists():
+            test_config["storage_state"] = str(shopping_state)
+            logger.info(f"Auto login succeeded. Using storage_state: {test_config['storage_state']}")
+        else:
+            logger.warning(f"Auto login executed but storage_state not found at {shopping_state}")
+    except ModuleNotFoundError as e:
+        logger.warning(f"Auto login skipped (dependency missing): {e}")
+    except Exception as e:
+        logger.warning(f"Auto login failed: {e}")
+
     # Persist possibly-updated config for environment consumption
     try:
         if selected_config_file is None:
@@ -395,6 +414,19 @@ def main() -> None:
             pass
             
         logger.info("Task completed successfully")
+        # Evaluate using WebArena evaluator (no image support)
+        try:
+            eval_traj = build_eval_trajectory(agent.rt, final_answer or "")  # type: ignore[attr-defined]
+            evaluator = evaluator_router(str(selected_config_file), captioning_fn=None)
+            score = evaluator(
+                trajectory=eval_traj,
+                config_file=str(selected_config_file),
+                page=env.page,
+            )
+            logger.info(f"Evaluation score: {score}")
+            print(f"Evaluation score: {score}")
+        except Exception as e:
+            logger.error(f"Evaluation failed: {e}")
         
     except Exception as e:
         logger.error(f"Task failed: {e}")

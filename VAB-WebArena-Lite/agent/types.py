@@ -33,7 +33,7 @@ class CheckpointInfo(BaseModel):
 class AggregateInfo(BaseModel):
     note: List[str] = Field(default_factory=list, description="notes with key-value pairs; no AX ids.")
     evidence: List[str] = Field(default_factory=list, description="anchors with AX ids, e.g., '#1749 $279.49 (price)'.")
-    plan_next: str = Field(default="", description="Intent of next action in text form.")
+    stuck: bool = Field(default=False, description="Whether the agent is currently stuck and should escape.")
     answer_ready: bool = Field(default=False, description="Whether the answer is ready.")
 
 

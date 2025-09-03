@@ -32,7 +32,10 @@
             "reference_answer_raw_annotation": "Impulse Duffle, Overnight Duffle, Hawkeye Yoga Short-32-Blue"
         },
         "intent_template_id": 279,
-        "old_task_id": 4
+        "old_task_id": 4,
+        "tags": [
+            "learn_by_interact"
+        ]
     },
     {
         "sites": [
@@ -66,7 +69,10 @@
             "reference_answer_raw_annotation": "Pittsburgh International Airport People Movers, Airport Boulevard, Findlay Township, Allegheny County, Pennsylvania, 15231, United States"
         },
         "intent_template_id": 79,
-        "old_task_id": 7
+        "old_task_id": 7,
+        "tags": [
+            "learn_by_interact"
+        ]
     },
     {
         "sites": [
@@ -98,7 +104,10 @@
             "reference_answer_raw_annotation": "2"
         },
         "intent_template_id": 288,
-        "old_task_id": 15
+        "old_task_id": 15,
+        "tags": [
+            "learn_by_interact"
+        ]
     },
     {
         "sites": [
@@ -132,7 +141,10 @@
             "reference_answer_raw_annotation": "driving: 13min, walking: 1h 45min."
         },
         "intent_template_id": 73,
-        "old_task_id": 20
+        "old_task_id": 20,
+        "tags": [
+            "learn_by_interact"
+        ]
     },
     {
         "sites": [
@@ -266,7 +278,11 @@
             "reference_answer_raw_annotation": "Yes"
         },
         "intent_template_id": 77,
-        "old_task_id": 37
+        "old_task_id": 37,
+        "tags": [
+            "learn_by_interact",
+            "webpilot"
+        ]
     },
     {
         "sites": [
@@ -325,7 +341,10 @@
             "url_note": "GOLD in PRED"
         },
         "intent_template_id": 303,
-        "old_task_id": 44
+        "old_task_id": 44,
+        "tags": [
+            "webpilot"
+        ]
     },
     {
         "sites": [
@@ -358,7 +377,11 @@
             "reference_answer_raw_annotation": "0 order, $0 total spend"
         },
         "intent_template_id": 197,
-        "old_task_id": 48
+        "old_task_id": 48,
+        "tags": [
+            "learn_by_interact",
+            "webpilot"
+        ]
     },
     {
         "sites": [
@@ -391,7 +414,10 @@
             "reference_answer_raw_annotation": "11 min"
         },
         "intent_template_id": 68,
-        "old_task_id": 56
+        "old_task_id": 56,
+        "tags": [
+            "learn_by_interact"
+        ]
     },
     {
         "sites": [
@@ -490,7 +516,10 @@
             "reference_answer_raw_annotation": "bookshop.org"
         },
         "intent_template_id": 17,
-        "old_task_id": 69
+        "old_task_id": 69,
+        "tags": [
+            "learn_by_interact"
+        ]
     },
     {
         "sites": [
@@ -522,7 +551,11 @@
             "reference_answer_raw_annotation": "15232"
         },
         "intent_template_id": 70,
-        "old_task_id": 71
+        "old_task_id": 71,
+        "tags": [
+            "learn_by_interact",
+            "webpilot"
+        ]
     },
     {
         "sites": [
@@ -558,7 +591,10 @@
             "reference_answer_raw_annotation": "Massachusetts Institute of Technology, Harvard University, Boston Logan International Airport"
         },
         "intent_template_id": 65,
-        "old_task_id": 75
+        "old_task_id": 75,
+        "tags": [
+            "learn_by_interact"
+        ]
     },
     {
         "sites": [
@@ -590,7 +626,11 @@
             "reference_answer_raw_annotation": "5"
         },
         "intent_template_id": 277,
-        "old_task_id": 77
+        "old_task_id": 77,
+        "tags": [
+            "learn_by_interact",
+            "webpilot"
+        ]
     },
     {
         "sites": [
@@ -657,7 +697,11 @@
             "reference_answer_raw_annotation": "34 minutes"
         },
         "intent_template_id": 64,
-        "old_task_id": 88
+        "old_task_id": 88,
+        "tags": [
+            "learn_by_interact",
+            "webpilot"
+        ]
     },
     {
         "sites": [
@@ -691,7 +735,11 @@
             "reference_answer_raw_annotation": "Massachusetts, Vermont, Maine"
         },
         "intent_template_id": 67,
-        "old_task_id": 93
+        "old_task_id": 93,
+        "tags": [
+            "learn_by_interact",
+            "webpilot"
+        ]
     },
     {
         "sites": [
@@ -723,7 +771,11 @@
             "reference_answer_raw_annotation": "$39.64"
         },
         "intent_template_id": 274,
-        "old_task_id": 95
+        "old_task_id": 95,
+        "tags": [
+            "learn_by_interact",
+            "webpilot"
+        ]
     },
     {
         "sites": [
@@ -753,7 +805,10 @@
             "string_note": ""
         },
         "intent_template_id": 193,
-        "old_task_id": 96
+        "old_task_id": 96,
+        "tags": [
+            "webpilot"
+        ]
     },
     {
         "sites": [
@@ -784,7 +839,10 @@
             "reference_answer_raw_annotation": "914 km"
         },
         "intent_template_id": 120,
-        "old_task_id": 97
+        "old_task_id": 97,
+        "tags": [
+            "learn_by_interact"
+        ]
     },
     {
         "sites": [
@@ -893,7 +951,10 @@
             "reference_answer_raw_annotation": "01:11 02:16 03:14 04:8 05:8 06:13 07:9 08:8 09:10 10:4 11:5 12:10"
         },
         "intent_template_id": 270,
-        "old_task_id": 109
+        "old_task_id": 109,
+        "tags": [
+            "learn_by_interact"
+        ]
     },
     {
         "sites": [
@@ -923,7 +984,10 @@
             "reference_answer_raw_annotation": ""
         },
         "intent_template_id": 245,
-        "old_task_id": 115
+        "old_task_id": 115,
+        "tags": [
+            "learn_by_interact"
+        ]
     },
     {
         "sites": [
@@ -953,7 +1017,10 @@
             "reference_answer_raw_annotation": "3/2/22"
         },
         "intent_template_id": 161,
-        "old_task_id": 117
+        "old_task_id": 117,
+        "tags": [
+            "learn_by_interact"
+        ]
     },
     {
         "sites": [
@@ -988,7 +1055,10 @@
             ]
         },
         "intent_template_id": 151,
-        "old_task_id": 118
+        "old_task_id": 118,
+        "tags": [
+            "webpilot"
+        ]
     },
     {
         "sites": [
@@ -1083,7 +1153,10 @@
             "reference_answer_raw_annotation": "Hollister"
         },
         "intent_template_id": 1001,
-        "old_task_id": 127
+        "old_task_id": 127,
+        "tags": [
+            "learn_by_interact"
+        ]
     },
     {
         "sites": [
@@ -1149,7 +1222,10 @@
             "reference_answer_raw_annotation": "0"
         },
         "intent_template_id": 322,
-        "old_task_id": 135
+        "old_task_id": 135,
+        "tags": [
+            "webpilot"
+        ]
     },
     {
         "sites": [
@@ -1182,7 +1258,10 @@
             "reference_answer_raw_annotation": "3h 20min"
         },
         "intent_template_id": 51,
-        "old_task_id": 139
+        "old_task_id": 139,
+        "tags": [
+            "webpilot"
+        ]
     },
     {
         "sites": [
@@ -1215,7 +1294,10 @@
             "reference_answer_raw_annotation": "0"
         },
         "intent_template_id": 162,
-        "old_task_id": 144
+        "old_task_id": 144,
+        "tags": [
+            "learn_by_interact"
+        ]
     },
     {
         "sites": [
@@ -1249,7 +1331,10 @@
             "reference_answer_raw_annotation": "Green-vines"
         },
         "intent_template_id": 155,
-        "old_task_id": 149
+        "old_task_id": 149,
+        "tags": [
+            "learn_by_interact"
+        ]
     },
     {
         "sites": [
@@ -1282,7 +1367,11 @@
             "reference_answer_raw_annotation": "9min"
         },
         "intent_template_id": 36,
-        "old_task_id": 155
+        "old_task_id": 155,
+        "tags": [
+            "learn_by_interact",
+            "webpilot"
+        ]
     },
     {
         "sites": [
@@ -1307,7 +1396,10 @@
             "url_note": "GOLD in PRED"
         },
         "intent_template_id": 290,
-        "old_task_id": 156
+        "old_task_id": 156,
+        "tags": [
+            "webpilot"
+        ]
     },
     {
         "sites": [
@@ -1332,7 +1424,10 @@
             "url_note": "GOLD in PRED"
         },
         "intent_template_id": 255,
-        "old_task_id": 157
+        "old_task_id": 157,
+        "tags": [
+            "webpilot"
+        ]
     },
     {
         "sites": [
@@ -1427,7 +1522,10 @@
             "reference_answer_raw_annotation": "a11yproject.com, Primer/design"
         },
         "intent_template_id": 289,
-        "old_task_id": 169
+        "old_task_id": 169,
+        "tags": [
+            "learn_by_interact"
+        ]
     },
     {
         "sites": [
@@ -1461,7 +1559,11 @@
             "url_note": "GOLD in PRED"
         },
         "intent_template_id": 310,
-        "old_task_id": 173
+        "old_task_id": 173,
+        "tags": [
+            "learn_by_interact",
+            "webpilot"
+        ]
     },
     {
         "sites": [
@@ -1492,7 +1594,10 @@
             "string_note": ""
         },
         "intent_template_id": 500,
-        "old_task_id": 182
+        "old_task_id": 182,
+        "tags": [
+            "webpilot"
+        ]
     },
     {
         "sites": [
@@ -1524,7 +1629,11 @@
             "reference_answer_raw_annotation": "65.32"
         },
         "intent_template_id": 214,
-        "old_task_id": 190
+        "old_task_id": 190,
+        "tags": [
+            "learn_by_interact",
+            "webpilot"
+        ]
     },
     {
         "sites": [
@@ -1591,7 +1700,11 @@
             "reference_answer_raw_annotation": "May 23, 2023"
         },
         "intent_template_id": 366,
-        "old_task_id": 202
+        "old_task_id": 202,
+        "tags": [
+            "learn_by_interact",
+            "webpilot"
+        ]
     },
     {
         "sites": [
@@ -1624,7 +1737,11 @@
             "reference_answer_raw_annotation": "1"
         },
         "intent_template_id": 320,
-        "old_task_id": 205
+        "old_task_id": 205,
+        "tags": [
+            "learn_by_interact",
+            "webpilot"
+        ]
     },
     {
         "sites": [
@@ -1657,7 +1774,11 @@
             "reference_answer_raw_annotation": "Sean Miller, sean.miller@gmail.com"
         },
         "intent_template_id": 364,
-        "old_task_id": 211
+        "old_task_id": 211,
+        "tags": [
+            "learn_by_interact",
+            "webpilot"
+        ]
     },
     {
         "sites": [
@@ -1679,7 +1800,9 @@
                 "string_match"
             ],
             "reference_answers": {
-                "fuzzy_match": ["N/A"]
+                "fuzzy_match": [
+                    "N/A"
+                ]
             },
             "reference_url": "",
             "program_html": [],
@@ -1687,7 +1810,10 @@
             "reference_answer_raw_annotation": "N/A"
         },
         "intent_template_id": 249,
-        "old_task_id": 215
+        "old_task_id": 215,
+        "tags": [
+            "learn_by_interact"
+        ]
     },
     {
         "sites": [
@@ -1820,7 +1946,11 @@
             "reference_answer_raw_annotation": "$9.99"
         },
         "intent_template_id": 370,
-        "old_task_id": 227
+        "old_task_id": 227,
+        "tags": [
+            "learn_by_interact",
+            "webpilot"
+        ]
     },
     {
         "sites": [
@@ -1981,7 +2111,11 @@
             "reference_answer_raw_annotation": "40.4511693, -79.9334241"
         },
         "intent_template_id": 46,
-        "old_task_id": 250
+        "old_task_id": 250,
+        "tags": [
+            "learn_by_interact",
+            "webpilot"
+        ]
     },
     {
         "sites": [
@@ -2039,7 +2173,10 @@
             "url_note": "GOLD in PRED"
         },
         "intent_template_id": 325,
-        "old_task_id": 258
+        "old_task_id": 258,
+        "tags": [
+            "webpilot"
+        ]
     },
     {
         "sites": [
@@ -2069,7 +2206,10 @@
             "reference_answer_raw_annotation": "TMN_bBn9Z48qVbUFZV45"
         },
         "intent_template_id": 312,
-        "old_task_id": 259
+        "old_task_id": 259,
+        "tags": [
+            "learn_by_interact"
+        ]
     },
     {
         "sites": [
@@ -2105,7 +2245,10 @@
             "reference_answer_raw_annotation": "Acadia National Park\n10h 33min"
         },
         "intent_template_id": 85,
-        "old_task_id": 268
+        "old_task_id": 268,
+        "tags": [
+            "learn_by_interact"
+        ]
     },
     {
         "sites": [
@@ -2160,7 +2303,10 @@
             "url_note": "GOLD in PRED"
         },
         "intent_template_id": 212,
-        "old_task_id": 276
+        "old_task_id": 276,
+        "tags": [
+            "webpilot"
+        ]
     },
     {
         "sites": [
@@ -2243,7 +2389,11 @@
             "reference_answer_raw_annotation": "5h 47min"
         },
         "intent_template_id": 47,
-        "old_task_id": 287
+        "old_task_id": 287,
+        "tags": [
+            "learn_by_interact",
+            "webpilot"
+        ]
     },
     {
         "sites": [
@@ -2275,7 +2425,10 @@
             "reference_answer_raw_annotation": "Samantha Jones"
         },
         "intent_template_id": 234,
-        "old_task_id": 288
+        "old_task_id": 288,
+        "tags": [
+            "learn_by_interact"
+        ]
     },
     {
         "sites": [
@@ -2332,7 +2485,10 @@
             "url_note": "GOLD in PRED"
         },
         "intent_template_id": 180,
-        "old_task_id": 300
+        "old_task_id": 300,
+        "tags": [
+            "webpilot"
+        ]
     },
     {
         "sites": [
@@ -2364,7 +2520,11 @@
             "reference_answer_raw_annotation": "Erik Linder-Norén"
         },
         "intent_template_id": 323,
-        "old_task_id": 311
+        "old_task_id": 311,
+        "tags": [
+            "learn_by_interact",
+            "webpilot"
+        ]
     },
     {
         "sites": [
@@ -2392,7 +2552,10 @@
             "reference_answer_raw_annotation": "N/A"
         },
         "intent_template_id": 134,
-        "old_task_id": 313
+        "old_task_id": 313,
+        "tags": [
+            "learn_by_interact"
+        ]
     },
     {
         "sites": [
@@ -2427,7 +2590,11 @@
             "reference_answer_raw_annotation": "Lo, Chen, Chu"
         },
         "intent_template_id": 324,
-        "old_task_id": 318
+        "old_task_id": 318,
+        "tags": [
+            "learn_by_interact",
+            "webpilot"
+        ]
     },
     {
         "sites": [
@@ -2519,7 +2686,10 @@
             "reference_answer_raw_annotation": "359.546"
         },
         "intent_template_id": 147,
-        "old_task_id": 333
+        "old_task_id": 333,
+        "tags": [
+            "learn_by_interact"
+        ]
     },
     {
         "sites": [
@@ -2583,7 +2753,11 @@
             "reference_answer_raw_annotation": "0"
         },
         "intent_template_id": 248,
-        "old_task_id": 348
+        "old_task_id": 348,
+        "tags": [
+            "learn_by_interact",
+            "webpilot"
+        ]
     },
     {
         "sites": [
@@ -2613,7 +2787,10 @@
             "reference_answer_raw_annotation": "yjlou"
         },
         "intent_template_id": 298,
-        "old_task_id": 349
+        "old_task_id": 349,
+        "tags": [
+            "learn_by_interact"
+        ]
     },
     {
         "sites": [
@@ -2666,7 +2843,10 @@
             "url_note": "GOLD in PRED"
         },
         "intent_template_id": 291,
-        "old_task_id": 357
+        "old_task_id": 357,
+        "tags": [
+            "webpilot"
+        ]
     },
     {
         "sites": [
@@ -2700,7 +2880,11 @@
             "reference_answer_raw_annotation": "170: cancelled, 189: pending"
         },
         "intent_template_id": 206,
-        "old_task_id": 361
+        "old_task_id": 361,
+        "tags": [
+            "learn_by_interact",
+            "webpilot"
+        ]
     },
     {
         "sites": [
@@ -2824,7 +3008,10 @@
             "url_note": "GOLD in PRED"
         },
         "intent_template_id": 266,
-        "old_task_id": 374
+        "old_task_id": 374,
+        "tags": [
+            "webpilot"
+        ]
     },
     {
         "sites": [
@@ -2891,7 +3078,10 @@
             "url_note": "GOLD in PRED"
         },
         "intent_template_id": 59,
-        "old_task_id": 381
+        "old_task_id": 381,
+        "tags": [
+            "webpilot"
+        ]
     },
     {
         "sites": [
@@ -3018,7 +3208,10 @@
             "reference_answer_raw_annotation": "Around 3.1 stars"
         },
         "intent_template_id": 1355,
-        "old_task_id": 386
+        "old_task_id": 386,
+        "tags": [
+            "learn_by_interact"
+        ]
     },
     {
         "sites": [
@@ -3125,7 +3318,10 @@
             ]
         },
         "intent_template_id": 6,
-        "old_task_id": 401
+        "old_task_id": 401,
+        "tags": [
+            "webpilot"
+        ]
     },
     {
         "sites": [
@@ -3161,7 +3357,10 @@
             ]
         },
         "intent_template_id": 22,
-        "old_task_id": 404
+        "old_task_id": 404,
+        "tags": [
+            "webpilot"
+        ]
     },
     {
         "sites": [
@@ -3229,7 +3428,10 @@
             ]
         },
         "intent_template_id": 361,
-        "old_task_id": 419
+        "old_task_id": 419,
+        "tags": [
+            "webpilot"
+        ]
     },
     {
         "sites": [
@@ -3405,7 +3607,10 @@
             ]
         },
         "intent_template_id": 331,
-        "old_task_id": 448
+        "old_task_id": 448,
+        "tags": [
+            "webpilot"
+        ]
     },
     {
         "sites": [
@@ -3548,7 +3753,10 @@
             ]
         },
         "intent_template_id": 186,
-        "old_task_id": 466
+        "old_task_id": 466,
+        "tags": [
+            "webpilot"
+        ]
     },
     {
         "sites": [
@@ -3582,7 +3790,10 @@
             ]
         },
         "intent_template_id": 257,
-        "old_task_id": 470
+        "old_task_id": 470,
+        "tags": [
+            "webpilot"
+        ]
     },
     {
         "sites": [
@@ -3618,7 +3829,10 @@
             ]
         },
         "intent_template_id": 292,
-        "old_task_id": 476
+        "old_task_id": 476,
+        "tags": [
+            "webpilot"
+        ]
     },
     {
         "sites": [
@@ -3654,7 +3868,10 @@
             ]
         },
         "intent_template_id": 294,
-        "old_task_id": 485
+        "old_task_id": 485,
+        "tags": [
+            "webpilot"
+        ]
     },
     {
         "sites": [
@@ -3689,7 +3906,11 @@
             ]
         },
         "intent_template_id": 275,
-        "old_task_id": 488
+        "old_task_id": 488,
+        "tags": [
+            "learn_by_interact",
+            "webpilot"
+        ]
     },
     {
         "sites": [
@@ -3901,7 +4122,10 @@
             ]
         },
         "intent_template_id": 189,
-        "old_task_id": 514
+        "old_task_id": 514,
+        "tags": [
+            "webpilot"
+        ]
     },
     {
         "sites": [
@@ -3935,7 +4159,10 @@
             ]
         },
         "intent_template_id": 196,
-        "old_task_id": 516
+        "old_task_id": 516,
+        "tags": [
+            "webpilot"
+        ]
     },
     {
         "sites": [
@@ -3967,7 +4194,10 @@
             ]
         },
         "intent_template_id": 199,
-        "old_task_id": 521
+        "old_task_id": 521,
+        "tags": [
+            "webpilot"
+        ]
     },
     {
         "sites": [
@@ -4092,7 +4322,10 @@
             ]
         },
         "intent_template_id": 330,
-        "old_task_id": 534
+        "old_task_id": 534,
+        "tags": [
+            "webpilot"
+        ]
     },
     {
         "sites": [
@@ -4351,7 +4584,10 @@
             ]
         },
         "intent_template_id": 351,
-        "old_task_id": 577
+        "old_task_id": 577,
+        "tags": [
+            "learn_by_interact"
+        ]
     },
     {
         "sites": [
@@ -4406,7 +4642,10 @@
             ]
         },
         "intent_template_id": 7,
-        "old_task_id": 582
+        "old_task_id": 582,
+        "tags": [
+            "webpilot"
+        ]
     },
     {
         "sites": [
@@ -4444,7 +4683,10 @@
             "url_note": "GOLD in PRED"
         },
         "intent_template_id": 4,
-        "old_task_id": 599
+        "old_task_id": 599,
+        "tags": [
+            "webpilot"
+        ]
     },
     {
         "sites": [
@@ -4482,7 +4724,10 @@
             "url_note": "GOLD in PRED"
         },
         "intent_template_id": 3765,
-        "old_task_id": 601
+        "old_task_id": 601,
+        "tags": [
+            "webpilot"
+        ]
     },
     {
         "sites": [
@@ -4521,7 +4766,10 @@
             "url_note": "GOLD in PRED"
         },
         "intent_template_id": 5,
-        "old_task_id": 605
+        "old_task_id": 605,
+        "tags": [
+            "webpilot"
+        ]
     },
     {
         "sites": [
@@ -4561,7 +4809,10 @@
             "url_note": "GOLD in PRED"
         },
         "intent_template_id": 9,
-        "old_task_id": 612
+        "old_task_id": 612,
+        "tags": [
+            "webpilot"
+        ]
     },
     {
         "sites": [
@@ -4648,7 +4899,10 @@
             "url_note": "GOLD in PRED"
         },
         "intent_template_id": 13,
-        "old_task_id": 626
+        "old_task_id": 626,
+        "tags": [
+            "webpilot"
+        ]
     },
     {
         "sites": [
@@ -4690,7 +4944,11 @@
             "url_note": "GOLD in PRED"
         },
         "intent_template_id": 15,
-        "old_task_id": 631
+        "old_task_id": 631,
+        "tags": [
+            "learn_by_interact",
+            "webpilot"
+        ]
     },
     {
         "sites": [
@@ -4732,7 +4990,11 @@
             "url_note": "GOLD in PRED"
         },
         "intent_template_id": 16,
-        "old_task_id": 641
+        "old_task_id": 641,
+        "tags": [
+            "learn_by_interact",
+            "webpilot"
+        ]
     },
     {
         "sites": [
@@ -4771,7 +5033,10 @@
             "url_note": "GOLD in PRED"
         },
         "intent_template_id": 19,
-        "old_task_id": 645
+        "old_task_id": 645,
+        "tags": [
+            "webpilot"
+        ]
     },
     {
         "sites": [
@@ -4808,7 +5073,10 @@
             "url_note": "GOLD in PRED"
         },
         "intent_template_id": 23,
-        "old_task_id": 652
+        "old_task_id": 652,
+        "tags": [
+            "webpilot"
+        ]
     },
     {
         "sites": [
@@ -4993,7 +5261,10 @@
             "url_note": "GOLD in PRED"
         },
         "intent_template_id": 253,
-        "old_task_id": 678
+        "old_task_id": 678,
+        "tags": [
+            "learn_by_interact"
+        ]
     },
     {
         "sites": [
@@ -5101,7 +5372,11 @@
             "url_note": "GOLD in PRED"
         },
         "intent_template_id": 163,
-        "old_task_id": 693
+        "old_task_id": 693,
+        "tags": [
+            "learn_by_interact",
+            "webpilot"
+        ]
     },
     {
         "sites": [
@@ -5145,7 +5420,11 @@
             "url_note": "GOLD in PRED"
         },
         "intent_template_id": 268,
-        "old_task_id": 704
+        "old_task_id": 704,
+        "tags": [
+            "learn_by_interact",
+            "webpilot"
+        ]
     },
     {
         "sites": [
@@ -5190,7 +5469,11 @@
             "url_note": "GOLD in PRED"
         },
         "intent_template_id": 271,
-        "old_task_id": 710
+        "old_task_id": 710,
+        "tags": [
+            "learn_by_interact",
+            "webpilot"
+        ]
     },
     {
         "sites": [
@@ -5227,7 +5510,10 @@
             ]
         },
         "intent_template_id": 24,
-        "old_task_id": 714
+        "old_task_id": 714,
+        "tags": [
+            "webpilot"
+        ]
     },
     {
         "sites": [
@@ -5354,7 +5640,10 @@
             ]
         },
         "intent_template_id": 27,
-        "old_task_id": 733
+        "old_task_id": 733,
+        "tags": [
+            "webpilot"
+        ]
     },
     {
         "sites": [
@@ -5673,7 +5962,10 @@
             ]
         },
         "intent_template_id": 241,
-        "old_task_id": 768
+        "old_task_id": 768,
+        "tags": [
+            "learn_by_interact"
+        ]
     },
     {
         "sites": [
