@@ -45,12 +45,12 @@ def add_tag_to_tasks(task_ids: List[int], tag: str, config_path: str) -> int:
     return updated_count
 
 
-def add_tag_from_evaluation_results(eval_results_path: str, tag: str, config_path: str) -> int:
+def add_tag_from_evaluation_results(learn_by_interact_path: str, tag: str, config_path: str) -> int:
     """
     从评估结果中提取成功的任务ID并添加标签
     
     Args:
-        eval_results_path: 评估结果文件路径
+        learn_by_interact_path: 评估结果文件路径
         tag: 要添加的标签
         config_path: 配置文件路径
         
@@ -58,7 +58,7 @@ def add_tag_from_evaluation_results(eval_results_path: str, tag: str, config_pat
         实际添加标签的任务数量
     """
     # 加载评估结果
-    with open(eval_results_path, 'r', encoding='utf-8') as f:
+    with open(learn_by_interact_path, 'r', encoding='utf-8') as f:
         results = json.load(f)
     
     # 提取成功的任务ID
@@ -209,7 +209,7 @@ def main():
     add_parser = subparsers.add_parser('add', help='添加标签')
     add_parser.add_argument('--tag', required=True, help='要添加的标签')
     add_parser.add_argument('--task-ids', nargs='+', type=int, help='任务ID列表')
-    add_parser.add_argument('--from-eval', help='从评估结果文件添加标签')
+    add_parser.add_argument('--from-learn_by_interact', help='从评估结果文件添加标签')
     add_parser.add_argument('--from-webpilot', help='从webpilot成功数据文件添加标签')
     
     # 移除标签命令
@@ -224,15 +224,15 @@ def main():
     args = parser.parse_args()
     
     if args.command == 'add':
-        if args.from_eval:
-            add_tag_from_evaluation_results(args.from_eval, args.tag, args.config)
+        if args.from_learn_by_interact:
+            add_tag_from_evaluation_results(args.from_learn_by_interact, args.tag, args.config)
         elif args.from_webpilot:
             add_tag_from_webpilot_success(args.from_webpilot, args.tag, args.config)
         elif args.task_ids:
             updated_count = add_tag_to_tasks(args.task_ids, args.tag, args.config)
             print(f"为 {updated_count} 个任务添加了标签 '{args.tag}'")
         else:
-            print("错误: 必须指定 --task-ids、--from-eval 或 --from-webpilot")
+            print("错误: 必须指定 --task-ids、--from-learn_by_interact 或 --from-webpilot")
     
     elif args.command == 'remove':
         updated_count = remove_tag_from_tasks(args.task_ids, args.tag, args.config)

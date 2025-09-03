@@ -1,5 +1,5 @@
-site,intent_template_id,id_count,eval_types,intent_template,intent,success,agents,remark
-wikipedia,85,1,string_match,What's the closest national park to {{city}}? How long does it take to bike there?,"What's the closest national park to Vinalhaven, ME? How long does it take to bike there?",yes,learn_by_interact,
-wikipedia,94,1,program_html,Show me the way from {{location}} to the home stadium of {{sport_team}} {{time}},Show me the way from Carnegie Mellon University to the home stadium of Boston home NBA team ,no,,
-wikipedia,120,1,string_match,Tell me the distance to drive from Carnegie Mellon University to the top computer science school in massachusetts,Tell me the distance to drive from Carnegie Mellon University to the top computer science school in massachusetts,yes,learn_by_interact,
-wikipedia,371,1,program_html,Find the page of {{description}} on the map.,Find the page of the place in Pennsylvania where a plane crashed during the September 11th attacks on the map.,no,,
+site,intent_template_id,task_id,old_task_id,id_count,eval_types,intent_template,intent,success,agents,remark
+wikipedia,94,155,741,1,program_html,Show me the way from {{location}} to the home stadium of {{sport_team}} {{time}},Show me the way from Carnegie Mellon University to the home stadium of Boston home NBA team ,no,,
+wikipedia,371,102,426,1,program_html,Find the page of {{description}} on the map.,Find the page of the place in Pennsylvania where a plane crashed during the September 11th attacks on the map.,no,,
+wikipedia,85,64,268,1,string_match,What's the closest national park to {{city}}? How long does it take to bike there?,"What's the closest national park to Vinalhaven, ME? How long does it take to bike there?",yes,learn_by_interactive,
+wikipedia,120,23,97,1,string_match,Tell me the distance to drive from Carnegie Mellon University to the top computer science school in massachusetts,Tell me the distance to drive from Carnegie Mellon University to the top computer science school in massachusetts,yes,learn_by_interactive,

@@ -90,13 +90,19 @@ class TrajectoryEvaluator:
         # 提取轨迹中的关键信息
         trajectory_summary = self._extract_trajectory_summary(trajectory)
         
+        # 提取标准答案信息
+        reference_info = self._extract_reference_answers(eval_config)
+        
         prompt = f"""
 你是一个专业的Web自动化任务评估专家。请评估以下WebArena Lite任务的执行轨迹是否成功完成了任务目标。
 
 ## 任务信息
 **任务意图**: {intent}
 **涉及网站**: {', '.join(sites)}
-**评估标准**: {json.dumps(eval_config, indent=2, ensure_ascii=False)}
+**评估类型**: {', '.join(eval_config.get('eval_types', []))}
+
+## 标准答案参考
+{reference_info}
 
 ## 执行轨迹摘要
 {trajectory_summary}
@@ -106,8 +112,10 @@ class TrajectoryEvaluator:
 
 1. **任务完成度**: 是否成功完成了任务意图？
 2. **操作正确性**: 执行的操作是否符合任务要求？
-3. **结果准确性**: 最终结果是否满足评估标准？
+3. **结果准确性**: 最终结果是否满足标准答案要求？
 4. **执行效率**: 操作路径是否合理高效？
+
+**重要**: 请特别关注标准答案中的要求，确保评估结果与预期答案一致。
 
 ## 输出格式
 请按以下JSON格式输出评估结果：
@@ -116,10 +124,11 @@ class TrajectoryEvaluator:
 {{
     "success": true/false,
     "confidence": 0.0-1.0,
-    "reasoning": "详细的评估理由",
+    "reasoning": "详细的评估理由，包括与标准答案的对比",
     "key_actions": ["关键操作1", "关键操作2", ...],
     "issues": ["问题1", "问题2", ...],
-    "suggestions": ["改进建议1", "改进建议2", ...]
+    "suggestions": ["改进建议1", "改进建议2", ...],
+    "reference_comparison": "与标准答案的详细对比分析"
 }}
 ```
 
@@ -186,13 +195,85 @@ class TrajectoryEvaluator:
         
         return "\n".join(summary_parts) if summary_parts else "无法提取轨迹信息"
     
-    def evaluate_trajectory(self, task_config: Dict, trajectory: Dict) -> Dict:
+    def _extract_reference_answers(self, eval_config: Dict) -> str:
+        """
+        提取标准答案信息
+        
+        Args:
+            eval_config: 评估配置
+            
+        Returns:
+            标准答案信息字符串
+        """
+        reference_parts = []
+        
+        # 提取reference_answers
+        reference_answers = eval_config.get('reference_answers')
+        if reference_answers:
+            reference_parts.append("**期望答案**:")
+            if isinstance(reference_answers, dict):
+                for key, value in reference_answers.items():
+                    if key == 'exact_match':
+                        reference_parts.append(f"- 精确匹配: {value}")
+                    elif key == 'must_include':
+                        if isinstance(value, list):
+                            reference_parts.append(f"- 必须包含: {', '.join(value)}")
+                        else:
+                            reference_parts.append(f"- 必须包含: {value}")
+                    elif key == 'fuzzy_match':
+                        if isinstance(value, list):
+                            reference_parts.append(f"- 模糊匹配: {', '.join(value)}")
+                        else:
+                            reference_parts.append(f"- 模糊匹配: {value}")
+            else:
+                reference_parts.append(f"- 标准答案: {reference_answers}")
+        
+        # 提取reference_url
+        reference_url = eval_config.get('reference_url')
+        if reference_url:
+            reference_parts.append(f"**期望URL**: {reference_url}")
+        
+        # 提取program_html检查规则
+        program_html = eval_config.get('program_html', [])
+        if program_html:
+            reference_parts.append("**程序化检查规则**:")
+            for i, rule in enumerate(program_html):
+                if isinstance(rule, dict):
+                    url = rule.get('url', '')
+                    locator = rule.get('locator', '')
+                    required_contents = rule.get('required_contents', {})
+                    reference_parts.append(f"- 规则{i+1}: 检查URL '{url}' 中的元素 '{locator}'")
+                    if required_contents:
+                        for content_type, content_value in required_contents.items():
+                            reference_parts.append(f"  要求: {content_type} = {content_value}")
+        
+        # 提取原始注释
+        raw_annotation = eval_config.get('reference_answer_raw_annotation')
+        if raw_annotation:
+            reference_parts.append(f"**原始注释**: {raw_annotation}")
+        
+        # 提取其他评估说明
+        string_note = eval_config.get('string_note')
+        if string_note:
+            reference_parts.append(f"**字符串匹配说明**: {string_note}")
+        
+        url_note = eval_config.get('url_note')
+        if url_note:
+            reference_parts.append(f"**URL匹配说明**: {url_note}")
+        
+        if not reference_parts:
+            return "**无标准答案参考**"
+        
+        return "\n".join(reference_parts)
+    
+    def evaluate_trajectory(self, task_config: Dict, trajectory: Dict, use_auto_validation: bool = True) -> Dict:
         """
         评估单个轨迹
         
         Args:
             task_config: 任务配置
             trajectory: 轨迹数据
+            use_auto_validation: 是否使用自动验证（基于标准答案）
             
         Returns:
             评估结果
@@ -220,6 +301,12 @@ class TrajectoryEvaluator:
                 if json_start != -1 and json_end != -1:
                     json_str = content[json_start:json_end]
                     result = json.loads(json_str)
+                    
+                    # 如果启用自动验证，进行额外的验证
+                    if use_auto_validation:
+                        auto_validation = self._auto_validate_with_reference(task_config, trajectory, result)
+                        result.update(auto_validation)
+                    
                     return result
                 else:
                     return {
@@ -250,11 +337,141 @@ class TrajectoryEvaluator:
                 "suggestions": []
             }
     
+    def _auto_validate_with_reference(self, task_config: Dict, trajectory: Dict, llm_result: Dict) -> Dict:
+        """
+        基于标准答案进行自动验证
+        
+        Args:
+            task_config: 任务配置
+            trajectory: 轨迹数据
+            llm_result: LLM评估结果
+            
+        Returns:
+            自动验证结果
+        """
+        eval_config = task_config.get('eval', {})
+        validation_result = {
+            "auto_validation": {
+                "enabled": True,
+                "checks": [],
+                "final_verdict": None,
+                "confidence_adjustment": 0.0
+            }
+        }
+        
+        # 检查URL匹配
+        reference_url = eval_config.get('reference_url')
+        if reference_url:
+            final_url = self._extract_final_url(trajectory)
+            if final_url:
+                url_match = self._check_url_match(final_url, reference_url, eval_config.get('url_note', 'EXACT'))
+                validation_result["auto_validation"]["checks"].append({
+                    "type": "url_match",
+                    "expected": reference_url,
+                    "actual": final_url,
+                    "match": url_match
+                })
+                if not url_match:
+                    validation_result["auto_validation"]["confidence_adjustment"] -= 0.3
+        
+        # 检查字符串匹配
+        reference_answers = eval_config.get('reference_answers')
+        if reference_answers:
+            trajectory_text = self._extract_trajectory_text(trajectory)
+            string_match = self._check_string_match(trajectory_text, reference_answers)
+            validation_result["auto_validation"]["checks"].append({
+                "type": "string_match",
+                "expected": reference_answers,
+                "actual": trajectory_text[:500] + "..." if len(trajectory_text) > 500 else trajectory_text,
+                "match": string_match
+            })
+            if not string_match:
+                validation_result["auto_validation"]["confidence_adjustment"] -= 0.4
+        
+        # 综合判断
+        all_checks_passed = all(check["match"] for check in validation_result["auto_validation"]["checks"])
+        if validation_result["auto_validation"]["checks"]:
+            if all_checks_passed:
+                validation_result["auto_validation"]["final_verdict"] = "PASS"
+                validation_result["auto_validation"]["confidence_adjustment"] += 0.2
+            else:
+                validation_result["auto_validation"]["final_verdict"] = "FAIL"
+        
+        return validation_result
+    
+    def _extract_final_url(self, trajectory: List) -> Optional[str]:
+        """提取轨迹中的最终URL"""
+        if not trajectory:
+            return None
+        
+        last_step = trajectory[-1]
+        if isinstance(last_step, dict) and 'observation' in last_step:
+            obs = last_step['observation']
+            if 'url=' in obs:
+                url_start = obs.find("url='") + 5
+                url_end = obs.find("'", url_start)
+                if url_start > 4 and url_end > url_start:
+                    return obs[url_start:url_end]
+        return None
+    
+    def _check_url_match(self, actual_url: str, expected_url: str, matching_rule: str) -> bool:
+        """检查URL匹配"""
+        if matching_rule == "EXACT":
+            return actual_url == expected_url
+        elif matching_rule == "GOLD in PRED":
+            return expected_url in actual_url
+        else:
+            return actual_url == expected_url
+    
+    def _extract_trajectory_text(self, trajectory: List) -> str:
+        """提取轨迹中的文本内容"""
+        text_parts = []
+        for step in trajectory:
+            if isinstance(step, dict):
+                if 'observation' in step:
+                    text_parts.append(step['observation'])
+                if 'action' in step and isinstance(step['action'], dict):
+                    if 'text' in step['action']:
+                        text_parts.append(step['action']['text'])
+        return " ".join(text_parts)
+    
+    def _check_string_match(self, actual_text: str, reference_answers: Dict) -> bool:
+        """检查字符串匹配"""
+        if not isinstance(reference_answers, dict):
+            return False
+        
+        actual_text_lower = actual_text.lower()
+        
+        # 检查exact_match
+        if 'exact_match' in reference_answers:
+            expected = str(reference_answers['exact_match']).lower()
+            return expected in actual_text_lower
+        
+        # 检查must_include
+        if 'must_include' in reference_answers:
+            must_include = reference_answers['must_include']
+            if isinstance(must_include, list):
+                return all(str(item).lower() in actual_text_lower for item in must_include)
+            else:
+                return str(must_include).lower() in actual_text_lower
+        
+        # 检查fuzzy_match (简化版本)
+        if 'fuzzy_match' in reference_answers:
+            fuzzy_match = reference_answers['fuzzy_match']
+            if isinstance(fuzzy_match, list):
+                # 至少匹配一个
+                return any(str(item).lower() in actual_text_lower for item in fuzzy_match)
+            else:
+                return str(fuzzy_match).lower() in actual_text_lower
+        
+        return False
+    
     def evaluate_all_trajectories(self, 
                                 config_path: str, 
                                 trajectory_dir: str,
                                 output_path: str,
-                                max_tasks: Optional[int] = None) -> Dict:
+                                max_tasks: Optional[int] = None,
+                                use_auto_validation: bool = True) -> Dict:
         """
         评估所有轨迹
         
@@ -311,7 +528,7 @@ class TrajectoryEvaluator:
             
             # 评估轨迹
             task_config = task_configs[task_id]
-            result = self.evaluate_trajectory(task_config, trajectory)
+            result = self.evaluate_trajectory(task_config, trajectory, use_auto_validation)
             
             # 记录结果
             result["task_id"] = task_id
@@ -382,6 +599,11 @@ def main():
         default="gpt-4o",
         help="使用的模型名称"
     )
+    parser.add_argument(
+        "--disable-auto-validation",
+        action="store_true",
+        help="禁用基于标准答案的自动验证"
+    )
     
     args = parser.parse_args()
     
@@ -394,11 +616,13 @@ def main():
         print(f"输出文件: {args.output}")
         print(f"使用模型: {args.model}")
         
+        use_auto_validation = not args.disable_auto_validation
         stats = evaluator.evaluate_all_trajectories(
             config_path=args.config,
             trajectory_dir=args.trajectory_dir,
             output_path=args.output,
-            max_tasks=args.max_tasks
+            max_tasks=args.max_tasks,
+            use_auto_validation=use_auto_validation
         )
         
         print("\n" + "="*50)
