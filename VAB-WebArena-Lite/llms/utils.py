@@ -160,10 +160,13 @@ def call_llm(
             time.sleep(backoff_seconds)
             backoff_seconds *= 1.5
 
-    # If all attempts failed, return empty string (callers handle fallbacks)
+    # If all attempts failed, raise the last error
     if last_err is not None:
         logging.error(f"LLM call failed after {max_attempts} attempts: {last_err}")
-    return ""
+        raise last_err
+    
+    # If no error but empty response, raise a generic error
+    raise RuntimeError("LLM call failed: no response after all retries")
 
 
 def call_llm_with_validation(

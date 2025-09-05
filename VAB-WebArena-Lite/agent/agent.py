@@ -158,28 +158,14 @@ class PromptAgent(Agent):
 
 
 def construct_agent(args: argparse.Namespace) -> Agent:
-    llm_config = lm_config.construct_llm_config(args)
-
     agent: Agent
-    if args.agent_type == "teacher_forcing":
-        agent = TeacherForcingAgent()
-    elif args.agent_type == "prompt":
-        with open(args.instruction_path) as f:
-            constructor_type = json.load(f)["meta_data"]["prompt_constructor"]
-        tokenizer = Tokenizer(args.provider, args.model)
-        prompt_constructor = eval(constructor_type)(
-            args.instruction_path, lm_config=llm_config, tokenizer=tokenizer
-        )
-        agent = PromptAgent(
-            action_set_tag=args.action_set_tag,
-            lm_config=llm_config,
-            prompt_constructor=prompt_constructor,
-        )
-    elif args.agent_type == "reward_guided":
+    if args.agent_type == "reward_guided":
         # Defer import to avoid heavy deps at module import time
         from agent.reward_guided_agent import RewardGuidedAgent
+        # Load configuration from file
         with open(args.instruction_path, "r") as f:
             cfg = json.load(f)
+        
         # Build LM configs from JSON
         def build_lm(cfg_obj: dict) -> lm_config.LMConfig:
             return lm_config.LMConfig(
@@ -188,20 +174,55 @@ def construct_agent(args: argparse.Namespace) -> Agent:
                 mode=cfg_obj.get("mode"),
                 gen_config=cfg_obj.get("gen_config", {}),
             )
+        
+        # Extract all configuration parameters
         policy_lm = build_lm(cfg.get("policy_lm_config", {}))
         reward_lm = build_lm(cfg.get("reward_lm_config", {}))
-        note_lm = build_lm(cfg.get("note_lm_config", {})) if cfg.get("note_lm_config") else None
         action_set_tag = cfg.get("action_set_tag", "id_accessibility_tree")
         num_samples = int(cfg.get("num_samples", 16))
+        max_steps = getattr(args, 'max_steps', None) or cfg.get('max_steps', 30)
+        num_calls = cfg.get('num_calls', 5)
+        max_tournament_candidates = cfg.get('max_tournament_candidates', 16)
+        max_obs_length = cfg.get('max_obs_length', 2048)
+        max_retry = cfg.get('max_retry', 3)
+        
+        # Create NucleusSampler from config
+        from agent.sampling import NucleusSampler
+        nucleus_sampling_config = cfg.get("nucleus_sampling_config", None)
+        nucleus_sampler = NucleusSampler(nucleus_sampling_config)
+        
         agent = RewardGuidedAgent(
             action_set_tag=action_set_tag,
             policy_lm_config=policy_lm,
             reward_lm_config=reward_lm,
-            note_lm_config=note_lm,
             num_samples=num_samples,
+            nucleus_sampler=nucleus_sampler,
+            max_steps=max_steps,
+            num_calls=num_calls,
+            max_tournament_candidates=max_tournament_candidates,
+            max_obs_length=max_obs_length,
+            max_retry=max_retry,
         )
     else:
-        raise NotImplementedError(
-            f"agent type {args.agent_type} not implemented"
-        )
+        # For other agent types, build LLM config first
+        llm_config = lm_config.construct_llm_config(args)
+        
+        if args.agent_type == "teacher_forcing":
+            agent = TeacherForcingAgent()
+        elif args.agent_type == "prompt":
+            with open(args.instruction_path) as f:
+                constructor_type = json.load(f)["meta_data"]["prompt_constructor"]
+            tokenizer = Tokenizer(args.provider, args.model)
+            prompt_constructor = eval(constructor_type)(
+                args.instruction_path, lm_config=llm_config, tokenizer=tokenizer
+            )
+            agent = PromptAgent(
+                action_set_tag=args.action_set_tag,
+                lm_config=llm_config,
+                prompt_constructor=prompt_constructor,
+            )
+        else:
+            raise NotImplementedError(
+                f"agent type {args.agent_type} not implemented"
+            )
     return agent

@@ -2,7 +2,8 @@ import logging
 import json
 import re
 import os
-from typing import Optional, List, Dict, Any
+import random
+from typing import Optional, List, Dict, Any, Tuple
 
 from beartype import beartype
 
@@ -15,125 +16,84 @@ from browser_env.actions import (
 from llms import lm_config
 from llms.utils import call_llm, build_api_input_for_text
 from .types import (
-    PlanRequest,
+    PolicyRequest,
+    PolicyResponse,
     BlockInfo,
     RewardRequest,
     RewardResponse,
     PairwiseDecision,
-    AggregateInfo,
+    PairwiseMatch,
 )
+from .parsers import BlockParser, RewardParser, ActionValidator, ObservationParser
+from .sampling import NucleusSampler, CandidateSelector
+
+
 from .runtime_manager import RuntimeManager
  
 from .prompts.sample_p import (
     intro as sample_intro,
-    output_guidelines as sample_guidelines,
     render_prompt as render_sample_prompt,
 )
-from .prompts.note_p import (
-    role_note_taker_agg,
-    note_taker_rules_v1,
-    context_note_taker_v1,
+from .prompts.reward_p import (
+    role as reward_role,
+    evaluation_summarized_v3 as reward_criteria,
+    context_rft_v3 as reward_context_template,
 )
 
 
 class RewardGuidedAgent(Agent):
-    """Reward-guided agent with BLOCK-only policy and post-reward AGGREGATE update.
+    """Reward-guided agent with BLOCK-only policy and pairwise knockout selection.
 
     Flow per turn:
     1) Build PolicyRequest from runtime meta.
     2) Sample BLOCK candidates (thought + bracket action string).
     3) Run pairwise knockout using reward prompt (stubbed scorer by default).
-    4) After a winner is chosen, update runtime.aggregate.plan_next to winner.action.
-    5) Return parsed Action created from winner.action.
+    4) Return parsed Action created from winner.action.
     """
 
     def __init__(
         self,
         action_set_tag: str,
-        policy_lm_config: Optional[lm_config.LMConfig] = None,
-        reward_lm_config: Optional[lm_config.LMConfig] = None,
-        note_lm_config: Optional[lm_config.LMConfig] = None,
+        policy_lm_config: lm_config.LMConfig,
+        reward_lm_config: lm_config.LMConfig,
         num_samples: int = 16,
+        nucleus_sampler: Optional["NucleusSampler"] = None,
+        max_steps: int = 30,
+        num_calls: int = 5,
+        max_tournament_candidates: int = 16,
+        max_obs_length: int = 2048,
+        max_retry: int = 3,
     ) -> None:
         super().__init__()
         self.logger = logging.getLogger("reward_guided_logger")
         self.action_set_tag = action_set_tag
         self.policy_lm_config = policy_lm_config
         self.reward_lm_config = reward_lm_config
-        self.note_lm_config = note_lm_config
         self.num_samples = max(1, int(num_samples))
+        self.max_steps = max_steps
+        self.num_calls = max(1, int(num_calls))
+        self.max_tournament_candidates = max(1, int(max_tournament_candidates))
+        self.max_obs_length = max(1, int(max_obs_length))
+        self.max_retry = max(1, int(max_retry))
 
-        self.rt = RuntimeManager()
-        
-        # Load reward prompt configuration
-        self._load_reward_prompt()
+        # Use provided nucleus sampler or create default one
+        self.nucleus_sampler = nucleus_sampler
 
-    def _load_reward_prompt(self) -> None:
-        """Load reward prompt configuration from JSON file."""
-        try:
-            # Get the directory of this file
-            current_dir = os.path.dirname(os.path.abspath(__file__))
-            prompt_path = os.path.join(current_dir, "prompts", "jsons", "reward_evaluation_prompt.json")
-            
-            with open(prompt_path, 'r', encoding='utf-8') as f:
-                self.reward_prompt_config = json.load(f)
-            
-            self.logger.info(f"Loaded reward prompt from {prompt_path}")
-        except Exception as e:
-            self.logger.warning(f"Failed to load reward prompt: {e}")
-            # Fallback to default configuration
-            self.reward_prompt_config = {
-                "system": "You are an expert judge for web navigation actions.\nChoose which candidate action better progresses the objective given the current page.\nOutput strictly JSON: {\"decision\": \"response_1|response_2|undecided\"}.",
-                "user_template": "## OBJECTIVE\n{intent}\n\n## URL\n{current_url}\n\n## START_URL\n{start_url}\n\n## AXTREE\n{observation}\n\n## TRAJECTORY\n{trajectory}\n\n## CANDIDATES\n### RESPONSE_1\nTHOUGHT: {thought1}\nACTION: {action1}\n\n### RESPONSE_2\nTHOUGHT: {thought2}\nACTION: {action2}\n\n## INSTRUCTIONS\nReturn strictly one JSON object: {\"decision\": \"response_1|response_2|undecided\"}"
-            }
-
-    # ---------------------------- Utilities ----------------------------
-    def _compose_observation_from_nodes(self, nodes: Optional[Dict[str, Any]]) -> str:
-        if not isinstance(nodes, dict) or not nodes:
-            return ""
-        lines: List[str] = []
-        try:
-            for _, node in nodes.items():
-                t = str(node.get("text", ""))
-                if t:
-                    lines.append(t)
-        except Exception:
-            pass
-        return "\n".join(lines)
-
-    def _compose_trajectory_from_meta(self) -> str:
-        m = self.rt.get_meta()
-        if not isinstance(m.trajectory, list) or not m.trajectory:
-            return ""
-        lines: List[str] = []
-        for item in m.trajectory:
-            try:
-                thought = getattr(item, "thought", None)
-                action = getattr(item, "action", None)
-                if isinstance(thought, str) and isinstance(action, str):
-                    lines.append(f"{{THOUGHT: {thought}, ACTION: {action}}}")
-            except Exception:
-                continue
-        return "\n".join(lines)
+        self.rt = RuntimeManager(max_steps=max_steps)
 
 
     # ---------------------------- Stage 1: Policy (BLOCK only) ----------------------------
-    def _build_sample_request(self):
-        # Build a lightweight container with required attributes for prompts
-        from types import SimpleNamespace
-        req = SimpleNamespace(
-            intent=self.rt.get_intent(),
-            observation=self._compose_observation_from_nodes(self.rt.get_obs_nodes_info()),
+    def _build_sample_request(self) -> PolicyRequest:
+        # Build policy request with only the essential attributes
+        return PolicyRequest(
+            intent=self.rt.get_intent() or "",
+            observation=self.rt.compose_observation_from_nodes(self.rt.get_obs_nodes_info()),
             current_url=self.rt.get_current_url(),
-            thought=(self.rt.get_checkpoint().block.thought if (self.rt.get_checkpoint() and getattr(self.rt.get_checkpoint(), "block", None)) else None),
-            action=(self.rt.get_checkpoint().block.action if (self.rt.get_checkpoint() and getattr(self.rt.get_checkpoint(), "block", None)) else None),
-            start_url=self.rt.get_start_url(),
         )
-        return req
 
-    def _format_policy_prompt(self, req: PlanRequest) -> tuple[str, str]:
-        prev_thought = "None"
-        prev_action = "None"
+    def _format_policy_prompt(self, req: PolicyRequest) -> tuple[str, str]:
+        prev_thought = "(None)"
+        prev_action = "(None)"
         try:
             cp = self.rt.get_checkpoint()
             blk = getattr(cp, "block", None) if cp else None
@@ -143,253 +103,145 @@ class RewardGuidedAgent(Agent):
                 prev_action = blk.action.strip()
         except Exception:
             pass
-        aggregate_json = "{}"
-        try:
-            ag = self.rt.get_aggregate()
-            if ag is not None:
-                aggregate_json = json.dumps(ag.dict(), ensure_ascii=False)
-        except Exception:
-            pass
-        system_text = f"{sample_intro}\n{sample_guidelines}"
+        
+        # Build system text with examples
+        system_text = f"{sample_intro}"
+        
         user_text = render_sample_prompt(
             objective=req.intent or "",
             observation=req.observation or "",
             url=req.current_url or "",
             previous_thought=prev_thought,
             previous_action=prev_action,
-            aggregate=aggregate_json,
         )
         return system_text, user_text
 
-    def _parse_block_from_response(self, raw: str) -> Optional[BlockInfo]:
-        if not isinstance(raw, str) or not raw.strip():
-            return None
-        # Try JSON first
-        try:
-            import re as _re
-            m = _re.search(r"\{[\s\S]*\}", raw)
-            if m:
-                data = json.loads(m.group(0))
-                blk = data.get("BLOCK") if isinstance(data, dict) else None
-                if isinstance(blk, dict):
-                    thought = blk.get("thought") or ""
-                    action = blk.get("action") or ""
-                    # Strip backticks if present
-                    if isinstance(action, str):
-                        s = action.strip()
-                        if s.startswith("```") and s.endswith("```"):
-                            s = s[3:-3].strip()
-                        # Normalize common missing-bracket case for goto
-                        try:
-                            mm = _re.match(r"^goto\s+(https?://[^\s\]]+)$", s, flags=_re.IGNORECASE)
-                            if mm:
-                                s = f"goto [{mm.group(1)}]"
-                        except Exception:
-                            pass
-                        action = s
-                    if isinstance(thought, str) and isinstance(action, str) and action:
-                        return BlockInfo(thought=thought, action=action)
-        except Exception:
-            pass
-        # Fallback: extract action from code fence, thought from a simple key
-        try:
-            import re as _re
-            act_m = _re.search(r"```([\s\S]*?)```", raw)
-            thought_m = _re.search(r"\"thought\"\s*:\s*\"([^\"]*)\"", raw)
-            action = act_m.group(1).strip() if act_m else ""
-            thought = thought_m.group(1).strip() if thought_m else ""
-            if action:
-                return BlockInfo(thought=thought, action=action)
-        except Exception:
-            pass
-        return None
 
-    def _parse_ax_observation(self, observation: Optional[str]) -> List[Dict[str, str]]:
-        elems: List[Dict[str, str]] = []
-        if not isinstance(observation, str) or not observation.strip():
-            return elems
-        for line in observation.splitlines():
-            m = re.match(r"^\s*\[(?P<id>[-A-Za-z0-9_]+)\]\s+(?P<role>[A-Za-z]+)(?:\s+'(?P<name>[^']*)')?", line)
-            if m:
-                elems.append({
-                    "id": m.group("id"),
-                    "role": m.group("role").lower(),
-                    "name": (m.group("name") or "").strip(),
-                })
-        return elems
 
-    def _is_valid_action(self, action_str: str) -> bool:
-        try:
-            s = (action_str or "").strip()
-            # click/type/hover must reference existing AXTREE id
-            m = re.match(r"^(click|type|hover)\s*\[([^\]]+)\]", s, flags=re.IGNORECASE)
-            if m:
-                elem_id = m.group(2).strip()
-                nodes = self.rt.get_obs_nodes_info()
-                return isinstance(nodes, dict) and elem_id in nodes
-            # goto must include an http(s) URL inside brackets
-            g = re.match(r"^goto\s*\[([^\]]+)\]", s, flags=re.IGNORECASE)
-            if g:
-                url = g.group(1).strip().lower()
-                return url.startswith("http://") or url.startswith("https://")
-            # press/scroll/go_back/go_forward/send_msg_to_user are considered syntactically valid here
-            return True
-        except Exception:
-            return False
-
-    def _format_reward_prompt(self, rr: RewardRequest) -> tuple[str, str]:
-        """Build system/user texts for reward LLM using loaded prompt configuration."""
-        # Use loaded system prompt
-        system_text = self.reward_prompt_config.get("system", 
-            "You are an expert judge for web navigation actions.\n"
-            "Choose which candidate action better progresses the objective given the current page.\n"
-            "Output strictly JSON: {\"decision\": \"response_1|response_2|undecided\"}."
-        )
-        
-        # Use loaded user template
-        user_template = self.reward_prompt_config.get("user_template", 
-            "## OBJECTIVE\n{intent}\n\n## URL\n{current_url}\n\n## START_URL\n{start_url}\n\n## AXTREE\n{observation}\n\n## TRAJECTORY\n{trajectory}\n\n## CANDIDATES\n### RESPONSE_1\nTHOUGHT: {thought1}\nACTION: {action1}\n\n### RESPONSE_2\nTHOUGHT: {thought2}\nACTION: {action2}\n\n## INSTRUCTIONS\nReturn strictly one JSON object: {\"decision\": \"response_1|response_2|undecided\"}"
-        )
-        
-        # Format user text using template
-        user_text = user_template.format(
-            intent=rr.intent,
-            current_url=rr.current_url,
-            start_url=rr.start_url,
-            observation=rr.observation,
-            trajectory=rr.trajectory,
-            thought1=rr.thought1,
-            action1=rr.action1,
-            thought2=rr.thought2,
-            action2=rr.action2
-        )
-        
-        return system_text, user_text
-
-    def _parse_reward_decision(self, raw: str) -> PairwiseDecision:
-        try:
-            if not isinstance(raw, str) or not raw.strip():
-                return PairwiseDecision.UNDECIDED
-            m = re.search(r"\{[\s\S]*\}", raw)
-            if m:
-                data = json.loads(m.group(0))
-                dec = (data.get("decision") or "").strip().lower()
-                if dec in (PairwiseDecision.RESPONSE_1.value, PairwiseDecision.RESPONSE_2.value, PairwiseDecision.UNDECIDED.value):
-                    return PairwiseDecision(dec)
-        except Exception:
-            pass
-        return PairwiseDecision.UNDECIDED
-
-    def _describe_action(self, action_str: str) -> str:
-        """Human-readable action meaning by looking up AXTREE id label from obs_nodes_info."""
-        try:
-            s = (action_str or "").strip()
-            # Extract element id for click/type/hover
-            m = re.search(r"^(click|type|hover)\s*\[([^\]]+)\]", s, re.IGNORECASE)
-            if not m:
-                # For goto, include URL
-                g = re.search(r"^goto\s*\[([^\]]+)\]", s, re.IGNORECASE)
-                if g:
-                    return f"goto → {g.group(1)}"
-                return s
-            elem_id = str(m.group(2)).strip()
-            verb = m.group(1).lower()
-            nodes = self.rt.get_obs_nodes_info()
-            if isinstance(nodes, dict) and elem_id in nodes:
-                node = nodes.get(elem_id, {})
-                node_text = str(node.get("text", "")).strip()
-                # Try to extract role and name from node_text like: "[430] menuitem 'Beauty & Personal Care' ..."
-                mm = re.search(r"^\s*\[[^\]]+\]\s*(?P<role>[A-Za-z]+)(?:\s+'(?P<name>[^']*)')?", node_text)
-                if mm:
-                    role = mm.group("role").lower()
-                    name = (mm.group("name") or "").strip()
-                    if name:
-                        return f"{verb} {role} '{name}' (#{elem_id})"
-                    return f"{verb} {role} (#{elem_id})"
-                return f"{verb} #{elem_id} '{node_text}'"
-            # Fallback: try to find any matching id key as string
-            if isinstance(nodes, dict):
-                node = nodes.get(str(elem_id)) or nodes.get(int(elem_id)) if str(elem_id).isdigit() else None  # type: ignore[index]
-                if isinstance(node, dict):
-                    node_text = str(node.get("text", "")).strip()
-                    mm = re.search(r"^\s*\[[^\]]+\]\s*(?P<role>[A-Za-z]+)(?:\s+'(?P<name>[^']*)')?", node_text)
-                    if mm:
-                        role = mm.group("role").lower()
-                        name = (mm.group("name") or "").strip()
-                        if name:
-                            return f"{verb} {role} '{name}' (#{elem_id})"
-                        return f"{verb} {role} (#{elem_id})"
-                    return f"{verb} #{elem_id} '{node_text}'"
-            return s
-        except Exception:
-            return action_str
-
-    def _sample_block_candidates(self, req: PlanRequest) -> List[BlockInfo]:
+    def _sample_block_candidates(self, req: PolicyRequest) -> PolicyResponse:
         if self.policy_lm_config is None:
             raise ValueError("Policy LLM config is required for LLM-based sampling")
+        
+        # Multi-block sampling: generate multiple diverse blocks per call
+        target_samples = self.num_samples
+        
+        # Generate fewer calls but each call produces more blocks
+        num_calls = self.num_calls
+        all_candidates: List[BlockInfo] = []
+        seen_actions: set = set()  # Track seen actions for deduplication
+        
+        self.logger.info(f"[MULTI_BLOCK] Generating {num_calls} calls for best-of-{target_samples} selection")
+        
+        # Log policy prompt once (same for all calls)
         sys_txt, usr_txt = self._format_policy_prompt(req)
-        # Build provider-correct API input (list of messages for chat models)
-        prompt = build_api_input_for_text(self.policy_lm_config, sys_txt, usr_txt)
-        # Log policy prompt (system and user) once per turn
         try:
             self.logger.info(f"[PROMPT_POLICY_SYSTEM]\n{sys_txt}")
             self.logger.info(f"[PROMPT_POLICY_USER]\n{usr_txt}")
         except Exception:
             pass
-        seen_actions = set()
-        results: List[BlockInfo] = []
-        # Bounded sampling: cap attempts to avoid slow infinite rolling
-        target_samples = max(1, int(getattr(self, "num_samples", 16)))
-        max_attempts = max(10, target_samples * 3)
-        attempts = 0
-        # Keep sampling until target unique actions or attempt cap
-        while len(results) < target_samples and attempts < max_attempts:
+        
+        # Generate multiple diverse blocks per call
+        for call_idx in range(num_calls):
+            # Use aggressive sampling parameters for diversity
+            temperature, top_p = self.nucleus_sampler.get_aggressive_sampling_params(call_idx, num_calls)
+            
+            # Create dynamic LM config for this sampling attempt
+            dynamic_config = self.nucleus_sampler.create_dynamic_lm_config(self.policy_lm_config, temperature, top_p)
+            
+            # Build prompt for this sampling attempt (reuse the same prompt)
+            prompt = build_api_input_for_text(dynamic_config, sys_txt, usr_txt)
+            
+            self.logger.info(f"[MULTI_BLOCK] Call {call_idx + 1}/{num_calls}, temp={temperature:.2f}, top_p={top_p:.2f}")
+            
+            # call_llm already has retry mechanism built-in
             try:
-                raw = call_llm(self.policy_lm_config, prompt)
-            except Exception:
-                raw = ""
-            # Log raw policy LLM response
+                raw = call_llm(dynamic_config, prompt)
+                
+                # Log the raw response for this call
+                try:
+                    self.logger.info(f"[MULTI_BLOCK_RESPONSE] Call {call_idx + 1} raw response:\n{raw}")
+                except Exception:
+                    pass
+                
+                # Parse multiple BLOCKs from response
+                blocks = BlockParser.parse_multiple_blocks(raw)
+                if not blocks:
+                    # If no blocks parsed, this is a parsing issue, not LLM issue
+                    # Since call_llm already retried, we should continue to next call
+                    self.logger.warning(f"[MULTI_BLOCK] No valid blocks parsed from call {call_idx + 1}")
+                    continue
+                    
+            except Exception as e:
+                # If call_llm fails after retries, log and continue to next call
+                self.logger.error(f"[MULTI_BLOCK] Call {call_idx + 1} failed: {e}")
+                continue
+            
+            # Log parsed blocks for this call
             try:
-                self.logger.info(f"[RAW_POLICY] {raw}")
+                self.logger.info(f"[MULTI_BLOCK_PARSED] Call {call_idx + 1} parsed {len(blocks)} blocks:")
+                for i, blk in enumerate(blocks):
+                    self.logger.info(f"  Block {i + 1}: {blk.action} | {blk.thought}")
             except Exception:
                 pass
-            # Parse BLOCK from response
-            blk = self._parse_block_from_response(raw)
-            if blk is None:
-                attempts += 1
-                continue
-            action_str = (blk.action or "").strip()
-            # Hard-filter invalid ids/urls
-            if not self._is_valid_action(action_str):
-                attempts += 1
-                continue
-            if action_str in seen_actions:
-                attempts += 1
-                continue
-            seen_actions.add(action_str)
-            # Normalize action field without backticks
-            blk = BlockInfo(thought=blk.thought, action=action_str)
-            results.append(blk)
-            attempts += 1
-        # Log thought with action (and brief meaning)
-        try:
-            for i, b in enumerate(results):
-                try:
-                    meaning = self._describe_action(b.action)
-                except Exception:
-                    meaning = b.action
-                self.logger.info(f"[THOUGHT] #{i}: {b.thought} | [ACTION] {b.action} | [MEANING] {meaning}")
-        except Exception:
-            pass
-        return results
+            
+            # Process each block
+            for blk in blocks:
+                action_str = (blk.action or "").strip()
+                # Hard-filter invalid ids/urls
+                if not ActionValidator.is_valid_action(action_str, self.rt.get_obs_nodes_info()):
+                    continue
+                
+                # Check for duplicates - skip if we've seen this action before
+                if action_str in seen_actions:
+                    continue
+                
+                # Normalize action field without backticks
+                blk = BlockInfo(thought=blk.thought, action=action_str)
+                all_candidates.append(blk)
+                seen_actions.add(action_str)  # Track this action
+                
+                # Stop if we have enough candidates
+                if len(all_candidates) >= target_samples * 2:  # Generate 2x target for selection
+                    break
+            
+            # Stop if we have enough candidates
+            if len(all_candidates) >= target_samples * 2:
+                break
+        
+        self.logger.info(f"[MULTI_BLOCK] Generated {len(all_candidates)} unique candidates from {num_calls} calls")
+        
+        # If we have fewer candidates than target, return what we have
+        if len(all_candidates) <= target_samples:
+            selected_candidates = all_candidates
+        else:
+            # Select best candidates using diversity + quality metrics
+            selected_candidates = CandidateSelector.select_best_candidates(all_candidates, target_samples)
+        
+        self.logger.info(f"[MULTI_BLOCK] Selected {len(selected_candidates)} best candidates from {len(all_candidates)} total")
+        
+        # Log selected candidates
+        for i, candidate in enumerate(selected_candidates):
+            try:
+                meaning = self.rt._describe_action(candidate.action)
+                self.logger.info(f"[THOUGHT] #{i}: {candidate.thought} | [ACTION] {candidate.action} | [MEANING] {meaning}")
+            except Exception:
+                pass
+        
+        # Build and return PolicyResponse
+        return PolicyResponse(
+            candidates=selected_candidates,
+            total_generated=len(all_candidates),
+            unique_actions=len(set(c.action for c in selected_candidates)),
+            is_valid=len(selected_candidates) > 0
+        )
 
     # ---------------------------- Stage 2: Reward (pairwise knockout) ----------------------------
-    def _build_reward_request(self, base: PlanRequest, a: BlockInfo, b: BlockInfo) -> RewardRequest:
+    def _build_reward_request(self, base: PolicyRequest, a: BlockInfo, b: BlockInfo) -> RewardRequest:
         return RewardRequest(
             intent=base.intent,
             observation=base.observation,
-            trajectory=self._compose_trajectory_from_meta(),
-            start_url=base.start_url,
+            trajectory=self.rt.compose_trajectory_from_meta(),
+            start_url=self.rt.get_start_url(),
             current_url=base.current_url,
             thought1=a.thought,
             action1=a.action,
@@ -397,56 +249,74 @@ class RewardGuidedAgent(Agent):
             action2=b.action,
         )
 
-    def _score_pair(self, rr: RewardRequest, round_idx: int, pair_idx: int) -> RewardResponse:
-        # If reward LLM is configured, use it; otherwise heuristic
-        if self.reward_lm_config is not None:
-            sys_txt, usr_txt = self._format_reward_prompt(rr)
-            # Log reward prompt
-            try:
-                self.logger.info(f"[PROMPT_REWARD_SYSTEM]\n{sys_txt}")
-                self.logger.info(f"[PROMPT_REWARD_USER]\n{usr_txt}")
-            except Exception:
-                pass
-            raw = ""
-            try:
-                api_input = build_api_input_for_text(self.reward_lm_config, sys_txt, usr_txt)
-                raw = call_llm(self.reward_lm_config, api_input)
-            except Exception:
-                raw = ""
+    def _score_pair(self, rr: RewardRequest) -> RewardResponse:
+        # Format reward prompt directly
+        system_text = f"{reward_role}\n{reward_criteria}"
+        user_text = reward_context_template.format(
+            intent=rr.intent,
+            observation=rr.observation,
+            trajectory=rr.trajectory,
+            start_url=rr.start_url,
+            current_url=rr.current_url,
+            thought1=rr.thought1,
+            action1=rr.action1,
+            thought2=rr.thought2,
+            action2=rr.action2
+        )
+        
+        # Log reward prompt
+        try:
+            self.logger.info(f"[PROMPT_REWARD_SYSTEM]\n{system_text}")
+            self.logger.info(f"[PROMPT_REWARD_USER]\n{user_text}")
+        except Exception:
+            pass
+        
+        # call_llm already has retry mechanism built-in
+        try:
+            api_input = build_api_input_for_text(self.reward_lm_config, system_text, user_text)
+            raw = call_llm(self.reward_lm_config, api_input)
+            
             try:
                 self.logger.info(f"[RAW_REWARD] {raw}")
             except Exception:
                 pass
-            decision = self._parse_reward_decision(raw)
-            winner = None
-            if decision == PairwiseDecision.RESPONSE_1:
-                winner = 1
-            elif decision == PairwiseDecision.RESPONSE_2:
-                winner = 2
+            
+            # This will raise ValueError if parsing fails (call_llm already retried)
+            try:
+                decision = RewardParser.parse_decision(raw)
+                winner = None
+                if decision == PairwiseDecision.RESPONSE_1:
+                    winner = 1
+                elif decision == PairwiseDecision.RESPONSE_2:
+                    winner = 2
+                
+                return RewardResponse(
+                    raw_response=raw,
+                    decision=decision,
+                    winner=winner,
+                    is_valid=True,
+                )
+            except ValueError as e:
+                # If parsing fails, return invalid response
+                self.logger.error(f"Failed to parse reward decision: {e}")
+                return RewardResponse(
+                    raw_response=raw,
+                    decision=PairwiseDecision.RESPONSE_1,  # Default fallback
+                    winner=1,
+                    is_valid=False,
+                )
+                    
+        except Exception as e:
+            # If call_llm fails after retries, return invalid response
+            self.logger.error(f"Reward LLM call failed: {e}")
             return RewardResponse(
-                raw_response=raw,
-                decision=decision,
-                winner=winner,
-                think=None,
-                criteria=None,
-                analysis=None,
-                is_valid=decision != PairwiseDecision.UNDECIDED,
-                parse_errors=[] if decision != PairwiseDecision.UNDECIDED else ["undecided"],
+                raw_response="",
+                decision=PairwiseDecision.RESPONSE_1,  # Default fallback
+                winner=1,
+                is_valid=False,
             )
 
-        # No heuristic fallback — if reward LLM is not configured or failed, stay undecided
-        return RewardResponse(
-            raw_response="",
-            decision=PairwiseDecision.UNDECIDED,
-            winner=None,
-            think=None,
-            criteria=None,
-            analysis=None,
-            is_valid=False,
-            parse_errors=["no reward_lm_config"],
-        )
-
-    def _knockout(self, base_req: PlanRequest, candidates: List[BlockInfo]) -> Optional[BlockInfo]:
+    def _knockout(self, base_req: PolicyRequest, candidates: List[BlockInfo]) -> Optional[BlockInfo]:
         """Single-elimination tournament bracket with pairwise matches each round.
 
         - Use up to 16 candidates (first 16).
@@ -459,8 +329,15 @@ class RewardGuidedAgent(Agent):
         if len(candidates) == 1:
             return candidates[0]
 
-        current: List[BlockInfo] = candidates[:16]
+        current: List[BlockInfo] = candidates[:self.max_tournament_candidates]
         round_idx = 0
+        
+        # Log tournament start
+        try:
+            self.logger.info(f"[TOURNAMENT_START] Starting knockout tournament with {len(current)} candidates")
+        except Exception:
+            pass
+            
         while len(current) > 1:
             next_round: List[BlockInfo] = []
             pair_idx = 0
@@ -475,12 +352,15 @@ class RewardGuidedAgent(Agent):
                 rr = self._build_reward_request(base_req, a, b)
                 # Log pairwise comparison context
                 try:
-                    a_desc = self._describe_action(a.action)
-                    b_desc = self._describe_action(b.action)
-                    self.logger.info(f"[KO_PAIR] round={round_idx} pair={pair_idx}\nA: {a_desc}\nB: {b_desc}")
+                    a_desc = self.rt._describe_action(a.action)
+                    b_desc = self.rt._describe_action(b.action)
+                    self.logger.info(f"[TOURNAMENT_MATCH] Round {round_idx + 1}, Match {pair_idx + 1}:\n  Candidate A: {a_desc}\n  Candidate B: {b_desc}")
                 except Exception:
                     pass
-                score = self._score_pair(rr, round_idx=round_idx, pair_idx=pair_idx)
+                score = self._score_pair(rr)
+                # Record the pairwise match for visualization
+                self.rt.record_pair(round_idx, i, i + 1, rr, score)
+                
                 winner_tag = "A"
                 if score.winner == 2 or score.decision == PairwiseDecision.RESPONSE_2:
                     next_round.append(b)
@@ -490,117 +370,31 @@ class RewardGuidedAgent(Agent):
                 pair_idx += 1
                 # Log decision summary
                 try:
+                    decision_desc = {
+                        PairwiseDecision.RESPONSE_1: "Selected Candidate A",
+                        PairwiseDecision.RESPONSE_2: "Selected Candidate B"
+                    }.get(score.decision, str(score.decision))
+                    
                     self.logger.info(
-                        f"[KO_DECISION] round={round_idx} pair={pair_idx-1} winner={winner_tag} decision={score.decision}\n"
-                        f"  A: {a_desc}\n  B: {b_desc}"
+                        f"[TOURNAMENT_RESULT] Round {round_idx + 1}, Match {pair_idx} Result: {decision_desc}\n"
+                        f"  Winner: Candidate {winner_tag}\n"
+                        f"  Candidate A: {a_desc}\n"
+                        f"  Candidate B: {b_desc}"
                     )
                 except Exception:
                     pass
                 i += 2
             current = next_round
             round_idx += 1
+            
+            # Log round completion
+            try:
+                self.logger.info(f"[TOURNAMENT_ROUND] Round {round_idx} completed, {len(current)} candidates advance to next round")
+            except Exception:
+                pass
+                
         return current[0]
 
-    # ---------------------------- Step 3: Notes/AGGREGATE Update ----------------------------
-    def _update_aggregate_via_llm(self, winner_action: str) -> None:
-        # If note LLM is not configured, just set plan_next and return
-        try:
-            if self.note_lm_config is None:
-                prev = self.rt.get_aggregate() or AggregateInfo(note=[], evidence=[], plan_next="", answer_ready=False)
-                prev.plan_next = winner_action
-                self.rt.set_aggregate(prev)
-                return
-        except Exception:
-            pass
-
-        # System and user prompts
-        system_text = f"{role_note_taker_agg}\n{note_taker_rules_v1}"
-        last_agg_json = "{}"
-        try:
-            ag = self.rt.get_aggregate()
-            if ag is not None:
-                last_agg_json = json.dumps(ag.dict(), ensure_ascii=False)
-        except Exception:
-            pass
-
-        # Prefer previous checkpoint block (thought + action); fallback to current winner
-        prev_thought = "None"
-        prev_action = winner_action or "None"
-        try:
-            cp = self.rt.get_checkpoint()
-            blk = getattr(cp, "block", None) if cp else None
-            if blk:
-                if isinstance(getattr(blk, "thought", None), str) and blk.thought.strip():
-                    prev_thought = blk.thought.strip()
-                if isinstance(getattr(blk, "action", None), str) and blk.action.strip():
-                    prev_action = blk.action.strip()
-        except Exception:
-            pass
-
-        user_text = context_note_taker_v1.format(
-            intent=self.rt.get_intent() or "",
-            observation=self._compose_observation_from_nodes(self.rt.get_obs_nodes_info()),
-            last_aggregate=last_agg_json,
-            thought=prev_thought,
-            action=prev_action,
-            start_url=self.rt.get_start_url() or "",
-            current_url=self.rt.get_current_url() or "",
-        )
-
-        # Log note prompt (system and user)
-        try:
-            self.logger.info(f"[PROMPT_NOTE_SYSTEM]\n{system_text}")
-            self.logger.info(f"[PROMPT_NOTE_USER]\n{user_text}")
-        except Exception:
-            pass
-
-        # Build API input and call LLM
-        raw = ""
-        try:
-            api_input = build_api_input_for_text(self.note_lm_config, system_text, user_text)
-            raw = call_llm(self.note_lm_config, api_input)
-        except Exception:
-            raw = ""
-        # Log raw note LLM response
-        try:
-            self.logger.info(f"[RAW_NOTE] {raw}")
-        except Exception:
-            pass
-
-        # Parse AGGREGATE JSON
-        new_agg: AggregateInfo | None = None
-        if isinstance(raw, str) and raw.strip():
-            try:
-                import re as _re
-                m = _re.search(r"\{[\s\S]*\}", raw)
-                if m:
-                    data = json.loads(m.group(0))
-                    payload = data.get("AGGREGATE", data)
-                    if isinstance(payload, dict):
-                        # Normalize fields
-                        note = payload.get("note") or []
-                        evidence = payload.get("evidence") or []
-                        plan_next = payload.get("plan_next") or ""
-                        answer_ready = payload.get("answer_ready") if isinstance(payload.get("answer_ready"), bool) else False
-                        new_agg = AggregateInfo(
-                            note=list(note) if isinstance(note, list) else [],
-                            evidence=list(evidence) if isinstance(evidence, list) else [],
-                            plan_next=str(plan_next),
-                            answer_ready=bool(answer_ready),
-                        )
-            except Exception:
-                new_agg = None
-
-        # Apply update or fallback
-        try:
-            if new_agg is None:
-                prev = self.rt.get_aggregate() or AggregateInfo(note=[], evidence=[], plan_next="", answer_ready=False)
-                prev.plan_next = winner_action
-                self.rt.set_aggregate(prev)
-            else:
-                self.rt.set_aggregate(new_agg)
-        except Exception:
-            pass
 
     # ---------------------------- Public API ----------------------------
     @beartype
@@ -611,6 +405,9 @@ class RewardGuidedAgent(Agent):
         meta_data: Dict[str, Any],
         output_response: bool = False,
     ) -> Action:
+        # Clear previous round samples at the start of each turn
+        self.rt.clear_current_round_samples()
+        
         # Ensure runtime has fresh intent/meta before building prompts
         try:
             # Single entrypoint to set meta and ensure initial AXTree when missing
@@ -620,8 +417,25 @@ class RewardGuidedAgent(Agent):
 
         # Stage 1: BLOCK candidates
         policy_req = self._build_sample_request()
-        candidates = self._sample_block_candidates(policy_req)
-        self.rt.set_block_candidates(candidates)
+        policy_resp = self._sample_block_candidates(policy_req)
+        candidates = policy_resp.candidates
+        
+        # Record candidates in trajectory tree
+        try:
+            self.rt.record_candidates(candidates)
+        except Exception:
+            pass
+
+        # Log all candidates in a consolidated list (Thought | Action | Meaning)
+        try:
+            self.logger.info(f"[CANDIDATES_GENERATED] Generated {len(candidates)} candidate actions:")
+            for idx, c in enumerate(candidates):
+                meaning = self.rt._describe_action(c.action)
+                self.logger.info(f"  Candidate {idx + 1}: {meaning}")
+                self.logger.info(f"    Thought: {c.thought}")
+                self.logger.info(f"    Action: {c.action}")
+        except Exception:
+            pass
 
         # Stage 2: Knockout
         winner = self._knockout(policy_req, candidates)
@@ -633,9 +447,12 @@ class RewardGuidedAgent(Agent):
         
         # Defer trajectory updates until after environment executes the action
 
-        # Minimal thought-only log for the winner
+        # Log the final winner
         try:
-            self.logger.info(f"winner: [THOUGHT] {winner.thought} [ACTION] {winner.action}")
+            winner_meaning = self.rt._describe_action(winner.action)
+            self.logger.info(f"[TOURNAMENT_WINNER] Selected action: {winner_meaning}")
+            self.logger.info(f"  Thought: {winner.thought}")
+            self.logger.info(f"  Action: {winner.action}")
         except Exception as e:
             raise ValueError(f"Failed to log winner thought: {winner.thought}") from e
 
@@ -657,13 +474,11 @@ class RewardGuidedAgent(Agent):
                 except Exception:
                     pass
         
-        # Step 3: Update Aggregate with LLM (never fail the turn)
-        try:
-            self._update_aggregate_via_llm(winner.action)
-        except Exception as e:
-            try:
-                self.logger.error(f"Note update failed: {e}")
-            except Exception:
-                pass
+
+
+        # Note: Trajectory tree is kept in memory for final visualization
 
         return action
+
+
+

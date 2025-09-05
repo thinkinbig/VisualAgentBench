@@ -104,7 +104,7 @@ def get_action_description(
                         action, action_set_tag, node_content
                     )
                 else:
-                    action_str = f"Attempt to perfom \"{action_name}\" on element \"[{action['element_id']}]\" but no matching element found. Please check the observation more carefully."
+                    action_str = action2str(action, action_set_tag, "")
             else:
                 if (
                     action["action_type"] == ActionTypes.NONE
@@ -128,12 +128,7 @@ def get_action_description(
                 if action["element_id"] in text_meta_data["obs_nodes_info"]:
                     action_str = action2str(action, action_set_tag, "")
                 else:
-                    print(
-                        'action["element_id"], text_meta_data["obs_nodes_info"]',
-                        action["element_id"],
-                        text_meta_data["obs_nodes_info"],
-                    )
-                    action_str = f"Attempt to perfom \"{action_name}\" on element \"[{action['element_id']}]\" but no matching element found. Please check the observation more carefully."
+                    action_str = action2str(action, action_set_tag, "")
             else:
                 if (
                     action["action_type"] == ActionTypes.NONE

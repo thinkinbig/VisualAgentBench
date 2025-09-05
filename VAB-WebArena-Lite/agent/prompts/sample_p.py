@@ -1,122 +1,119 @@
+
 # Intro/role content
 intro = (
     "You are an autonomous intelligent agent tasked with navigating a web browser. "
-    "You will be given web-based tasks. These tasks will be accomplished through the use of specific actions you can issue.\n\n"
-    "You will be given:\n"
-    "- ## OBJECTIVE the task to complete. \n"
-    "- ## AXTREE a simplified, actionable view of the current page (only visible & interactive nodes). \n"
-    "- ## URL the current page URL. \n"
-    "- ## PREVIOUS ACTION the action you just performed. \n"
-    "- ## AGGREGATE is authoritative step memory:\n"
-    "   - If AGGREGATE.stuck=true → execute the escape action\n\n"
-    "   - If AGGREGATE.answer_ready=true → immediately send_msg_to_user with the visible value.\n"
+    "You will be given web-based tasks. These tasks can only be accomplished by issuing specific actions.\n\n"
 
+    "--------------------------------\n"
+    "OUTPUT FORMAT\n"
+    "--------------------------------\n"
+    "You must return EXACTLY one JSON object containing multiple different BLOCKs. Each BLOCK should represent a different approach to advancing the goal.\n"
+    "{\n"
+    "  \"BLOCKS\": [\n"
+    "    {\n"
+    "      \"thought\": \"<Current state description> <Goal explanation> <Specific action and necessity>\",\n"
+    "      \"action\": \"<one valid action string>\"\n"
+    "    },\n"
+    "    {\n"
+    "      \"thought\": \"<Current state description> <Goal explanation> <DIFFERENT action and necessity>\",\n"
+    "      \"action\": \"<a DIFFERENT valid action string>\"\n"
+    "    },\n"
+    "    {\n"
+    "      \"thought\": \"<Current state description> <Goal explanation> <ANOTHER action and necessity>\",\n"
+    "      \"action\": \"<yet ANOTHER valid action string>\"\n"
+    "    }\n,"
+    "    {\n"
+    "      \"thought\": \"<Current state description> <Goal explanation> <ANOTHER action and necessity>\",\n"
+    "      \"action\": \"<yet ANOTHER valid action string>\"\n"
+    "    },\n"
+    "    {\n"
+    "      \"thought\": \"<Current state description> <Goal explanation> <ANOTHER action and necessity>\",\n"
+    "      \"action\": \"<yet ANOTHER valid action string>\"\n"
+    "    }\n"
+    "  ]\n"
+    "}\n\n"
 
-    "Homepage:\n" 
-    "If you want to visit other websites, check out the homepage at http://homepage.com. It has a list of websites you can visit. http://homepage.com/password.html lists all the account name and password for the websites. You can use them to log in to the websites.\n\n"
+    "Structural example (placeholders only — DO NOT copy these values):\n"
+    "{\n"
+    "  \"BLOCKS\": [\n"
+    "    {\n"
+    "      \"thought\": \"The current webpage shows search results for 'Stranger Things' with multiple series options displayed. To reach the Cast & Crew page for Justin Doble, the correct 'Stranger Things (2016)' link must be clicked. This action is necessary to navigate to the specific series page where the Cast & Crew section can be accessed.\",\n"
+    "      \"action\": \"click [<AXTREE_ID_1>]\"\n"
+    "    },\n"
+    "    {\n"
+    "      \"thought\": \"The current webpage shows the IMDb search interface with the search bar still active. To find information about Justin Doble's involvement in Stranger Things, I can search for 'Justin Doble' directly. This approach is necessary to locate his specific page and verify his writing credits for the series.\",\n"
+    "      \"action\": \"type [<AXTREE_ID_2>] Justin Doble\"\n"
+    "    },\n"
+    "    {\n"
+    "      \"thought\": \"The current webpage shows search results for 'Stranger Things' with multiple series options displayed. To reach the Cast & Crew page for Justin Doble, the correct 'Stranger Things (2016)' link must be clicked. This action is necessary to navigate to the specific series page where the Cast & Crew section can be accessed.\",\n"
+    "      \"action\": \"click [<AXTREE_ID_1>]\"\n"
+    "    },\n"
+    "    {\n"
+    "      \"thought\": \"The current webpage shows the IMDb search interface with the search bar still active. To find information about Justin Doble's involvement in Stranger Things, I can search for 'Justin Doble' directly. This approach is necessary to locate his specific page and verify his writing credits for the series.\",\n"
+    "      \"action\": \"type [<AXTREE_ID_2>] Justin Doble\"\n"
+    "    },\n"
+    "    {\n"
+    "      \"thought\": \"The current webpage displays the main Stranger Things series page with various sections visible. To access the Cast & Crew information for Justin Doble, I need to scroll down to locate the Cast & Crew section. This action is necessary to reveal the writing credits section where Justin Doble's involvement can be verified.\",\n"
+    "      \"action\": \"scroll [down]\"\n"
+    "    }\n"
+    "  ]\n"
+    "}\n\n"
+
+    "--------------------------------\n"
+    "OUTPUT GUIDELINES\n"
+    "--------------------------------\n"
+    "- FORBIDDEN: Do NOT output '<', '>', 'EXAMPLE', or placeholder tokens. "
+    "If you would output those, instead pick a REAL id from the CURRENT AXTREE.\n"
+    "- The action target MUST come from the CURRENT AXTREE (or be a valid URL for goto). "
+    "Do NOT invent ids or text.\n"
+    "- Always ground your choice in the CURRENT AXTREE: the id must exist there, and the thought should reference the id and/or visible text.\n"
+    "- The thought must follow the three-part format: <Current state description> <Goal explanation> <Specific action and necessity>.\n"
+    "- Current state: Describe what the current webpage shows and the user's position.\n"
+    "- Goal explanation: Explain what needs to be accomplished and why.\n"
+    "- Action and necessity: Describe the specific action and why it's necessary to achieve the goal.\n"
+    "- CRITICAL: Each BLOCK must represent a DIFFERENT approach - use different actions, different elements, or different strategies.\n"
+    "- Generate 5 diverse BLOCKs that explore different ways to accomplish the task.\n"
+
+    "--------------------------------\n"
+    "ACTIONS\n"
+    "--------------------------------\n"
     "The actions you can perform fall into several categories:\n\n"
+
     "Page Operation Actions:\n"
-    "```click [id]```: This action clicks on an element with a specific id on the webpage.\n"
-    "```type [id] [content] [1|0]```: Type into field [id]. Third bracket is press_enter_after: 1 = press Enter (default), 0 = do not.\n"
-    "```hover [id]```: Hover over an element with id.\n"
-    "```press [key_comb]```:  Simulates the pressing of a key combination on the keyboard (e.g., Ctrl+v).\n"
-    "```scroll [down]``` or ```scroll [up]```: Scroll the page up or down.\n\n"
+    "```click [AXTREE_ID]```: Click an element with the specified id on the current page.\n"
+    "```type [AXTREE_ID] CONTENT```: Type CONTENT into the input field [AXTREE_ID] and automatically press Enter.\n"
+    "```hover [AXTREE_ID]```: Hover over the element with the given id.\n"
+    "```press [KEY_COMBINATION]```: Simulate pressing a key combination (e.g., Ctrl+V).\n"
+    "```scroll [down]``` or ```scroll [up]```: Scroll the page down or up.\n\n"
+
     "URL Navigation Actions:\n"
-    "```goto [url]```: Navigate to a specific URL.\n"
-    "```go_back```: Navigate to the previously viewed page.\n"
-    "```go_forward```: Navigate to the next page (if a previous 'go_back' action was performed).\n\n"
+    "```goto [URL]```: Navigate to a given URL.\n"
+    "```go_back```: Navigate to the previous page.\n"
+    "```go_forward```: Navigate forward, if a previous 'go_back' was performed.\n\n"
+
     "Completion Action:\n"
-    "```send_msg_to_user [answer]```: Issue this action when you believe the task is complete. If the objective is to find a text-based answer, provide the answer in the bracket.\n\n"
+    "```send_msg_to_user [ANSWER]```: Use this action when the task is complete. "
+    "If the objective is to find a text-based answer, put the answer inside the brackets.\n\n"
+
+    "Homepage:\n"
+    "If you want to visit other websites, you may use the homepage at http://homepage.com. "
+    "It contains a list of websites you can visit. "
+    "http://homepage.com/password.html lists account names and passwords for those sites. "
+    "You can use them to log in.\n\n"
 )
 
 
-examples = [
-    (
-    # Example 1 — terminal answer with send_msg_to_user
-    "## OBJECTIVE What is the price of HP Inkjet Fax Machine\n"
-    "## AXTREE [1744] link 'HP CB782A#ABA 640 Inkjet Fax Machine (Renewed)'\n"
-    "[1749] StaticText '$279.49'\n"
-    "[1757] button 'Add to Cart'\n"
-    "[1760] button 'Add to Wish List'\n"
-    "[1761] button 'Add to Compare'\n"
-    "## URL http://onestopmarket.com/office-products/office-electronics.html\n"
-    "## PREVIOUS THOUGHT The HP Inkjet Fax Machine is visible on this page (#1744) and its price $279.49 is clearly shown (#1749), so returning this value completes the task.\n"
-    "## PREVIOUS ACTION scroll [down]\n"
-    "## AGGREGATE {\"notes\": [\"site=onestopmarket\", \"category=office-electronics\", \"query=hp_inkjet_fax_machine\", \"hp_fax_item_found=true\", \"price_visible=true\"], \"evidence\": [\"#1744 HP CB782A#ABA 640 Inkjet Fax Machine (title)\", \"#1749 $279.49 (visible price)\"],  \"stuck\": false, \"answer_ready\": true}",
-    "{\n"
-    "  \"BLOCK\": {\n"
-    "    \"thought\": \"The user is on onestopmarket’s office-electronics page with the HP fax product visible (#1744). The price '$279.49' is clearly shown (#1749), so returning it now completes the task.\",\n"
-    "    \"action\": \"send_msg_to_user [$279.49]\"\n"
-    "  }\n"
-    "}"
-    ),
-    (
-    # Example 2 — type into focused search box and submit
-    "## OBJECTIVE Show me the restaurants near CMU\n"
-    "## AXTREE [164] textbox 'Search' focused: True required: False\n"
-    "[171] button 'Go'\n"
-    "[174] link 'Find directions between two points'\n"
-    "[212] heading 'Search Results'\n"
-    "[216] button 'Close'\n"
-    "## URL http://openstreetmap.org\n"
-    "## PREVIOUS THOUGHT The search box is focused (#164) on OpenStreetMap; typing \"restaurants near CMU\" and submitting will fetch nearby results, which advances the objective. \n"
-    "## PREVIOUS ACTION click [164]\n"
-    "## AGGREGATE {\"notes\": [\"site=openstreetmap\", \"page=map\", \"searchbox_focused=true\", \"poi_target=restaurants\", \"location_hint=CMU\"], \"evidence\": [\"#164 Search (focused)\", \"#171 Go (submit)\"],  \"stuck\": false, \"answer_ready\": false} ",
-    "{\n"
-    "  \"BLOCK\": {\n"
-    "    \"thought\": \"The user is on OpenStreetMap with the search box focused (#164). To show restaurants near CMU, typing the query and submitting will fetch nearby results.\",\n"
-    "    \"action\": \"type [164] [restaurants near CMU] [1]\"\n"
-    "  }\n"
-    "}"
-    ),
-    (
-    # Example 3 — stuck detected: change query
-    "## OBJECTIVE Find a product: makeup brush\n"
-    "## AXTREE [120] heading 'Search'\n"
-    "[164] textbox 'Search' focused: False required: False\n"
-    "[171] button 'Search'\n"
-    "[311] StaticText 'No results found'\n"
-    "## URL http://shop.example.com/search?q=brush\n"
-    "## PREVIOUS THOUGHT The user previously searched for 'brush' and the current page shows 'No results found'. To progress toward finding a makeup brush, the next step involves changing the query to a more specific term. Updating the search to 'makeup brush' aligns with the objective and should yield relevant results.\n"
-    "## PREVIOUS ACTION type [164] [brush] [1]\n"
-    "## AGGREGATE {\"notes\": [\"site=shop_example\", \"query=brush\", \"empty_results=true\"], \"evidence\": [\"#311 No results found (message)\", \"#164 Search (input)\", \"#171 Search (button)\"] ,  \"stuck\": true, \"answer_ready\": false} ",
-    "{\n"
-    "  \"BLOCK\": {\n"
-    "    \"thought\": \"The current page shows 'No results found' after searching for 'brush'. To advance the objective of finding a makeup brush, changing the query to 'makeup brush' is necessary and should produce relevant results.\",\n"
-    "    \"action\": \"type [164] [makeup brush] [1]\"\n"
-    "  }\n"
-    "}"
-    )
-]
+
 
 
 # Template used to construct a prompt per turn
 template = (
-    "## OBJECTIVE {objective} \n"
-    "## AXTREE {observation} \n"
-    "## URL {url} \n"
-    "## PREVIOUS THOUGHT {previous_thought} \n"
-    "## PREVIOUS ACTION {previous_action} \n"
-    "## AGGREGATE {aggregate}\n"
+    "## OBJECTIVE: the task to complete: {objective} \n"
+    "## AXTREE a simplified, actionable view of the current page (only visible & interactive nodes): {observation} \n"
+    "## URL the current page URL: {url} \n"
+    "## PREVIOUS THOUGHT the thought of the action you just performed: {previous_thought} \n"
+    "## PREVIOUS ACTION the action you just performed: {previous_action} \n"
 )
-
-
-output_guidelines = (
-    "## Output Guidelines\n"
-    "- Return ONLY a single JSON object. No extra text. No markdown/code fences.\n"
-    "- EXACT FORMAT:\n"
-    "  {\n"
-    "    \"BLOCK\": {\n"
-    "      \"thought\": \"<why this action advances the goal>\",\n"
-    "      \"action\": \"<action string>\",\n"
-    "    }\n"
-    "  }\n"
-    "- BLOCK must contain exactly ONE action and ONE thought.\n"
-    "- Action MUST be one of: click/type/hover/press/scroll/goto/go_back/go_forward/send_msg_to_user.\n"
-    "- Action target MUST come from the current AXTREE (or a valid URL for goto). Do NOT invent ids/text.\n"
-    "- Do NOT include backticks. Do NOT include explanations outside JSON.\n"
-)
-
 
 meta_data = {
     "observation": "accessibility_tree",
@@ -126,8 +123,7 @@ meta_data = {
         "observation",
         "url",
         "previous_thought",
-        "previous_action",
-        "aggregate",
+        "previous_action"
     ],
     "prompt_constructor": "CoTPromptConstructor",
     "answer_phrase": "ACTION:",
@@ -141,7 +137,6 @@ def render_prompt(
     url: str,
     previous_thought: str,
     previous_action: str,
-    aggregate: str,
 ) -> str:
     """Render the turn prompt using the template and provided fields.
 
@@ -155,15 +150,12 @@ def render_prompt(
         url=url,
         previous_thought=previous_thought,
         previous_action=previous_action,
-        aggregate=aggregate,
     )
 
 
 __all__ = [
     "intro",
-    "examples",
     "template",
-    "output_guidelines",
     "meta_data",
     "render_prompt",
 ]

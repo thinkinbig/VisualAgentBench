@@ -8,7 +8,7 @@ from typing import Dict, List, Optional
 from pydantic import BaseModel, Field, validator
 from enum import Enum
 from agent.types import (
-    PlanResponse,
+    PolicyResponse,
 )
 
 class ActionType(str, Enum):
@@ -69,7 +69,7 @@ class ParsedAction(BaseModel):
 
         Examples:
         - click [577]
-        - type [312] [hello] [1]
+        - type [312] hello
         - hover [1749]
         - press [Ctrl+v]
         - scroll [down]
@@ -93,9 +93,8 @@ class ParsedAction(BaseModel):
                 raise ValueError("TYPE requires element_id for id_accessibility_tree format")
             if self.content is None:
                 raise ValueError("TYPE requires content (text)")
-            press_enter = self.press_enter_after if self.press_enter_after is not None else True
-            enter_flag = 1 if press_enter else 0
-            return f"type [{self.element_id}] [{self.content}] [{enter_flag}]"
+            # New format: type [id] content (auto-enter)
+            return f"type [{self.element_id}] {self.content}"
 
         if at == ActionType.HOVER:
             if not self.element_id:
@@ -158,9 +157,9 @@ class LLMResponse(BaseModel):
     raw_response: str = Field(
         description="Original raw string returned by the LLM."
     )
-    agent_response: Optional[PlanResponse] = Field(
+    agent_response: Optional[PolicyResponse] = Field(
         None,
-        description="Parsed CAB response (CHECKPOINT/AGGREGATE/BLOCK)."
+        description="Parsed policy response (candidates and metadata)."
     )
     thought_action: Optional[ThoughtActionPair] = Field(
         None,

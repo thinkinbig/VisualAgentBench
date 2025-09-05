@@ -246,26 +246,14 @@ def main() -> None:
     if not config_path.exists():
         logger.error(f"Agent config file not found: {config_path}")
         return
-        
-    with open(config_path, "r") as f:
-        agent_config = json.load(f)
     
     # Create agent with configuration from file
     from types import SimpleNamespace
+    
     agent_args = SimpleNamespace(
         agent_type="reward_guided",
         instruction_path=str(config_path),
-        provider="openai",  # Default provider, will be overridden by config
-        model="gpt-4o-mini",  # Default model, will be overridden by config
-        mode="chat",
-        temperature=agent_config.get("temperature", 1.0),
-        top_p=agent_config.get("top_p", 0.9),
-        context_length=4096,
-        max_tokens=agent_config.get("policy_lm_config", {}).get("gen_config", {}).get("max_tokens", 512),
-        stop_token=None,
-        max_obs_length=2048,
-        max_retry=3,
-        model_endpoint=None,
+        max_steps=args.max_steps,  # Pass max_steps from command line args
     )
     
     try:
@@ -276,13 +264,10 @@ def main() -> None:
         try:
             policy_model = getattr(getattr(agent, "policy_lm_config", None), "model", None)
             reward_model = getattr(getattr(agent, "reward_lm_config", None), "model", None)
-            note_model = getattr(getattr(agent, "note_lm_config", None), "model", None)
             if policy_model:
                 logger.info(f"Policy model: {policy_model}")
             if reward_model:
                 logger.info(f"Reward model: {reward_model}")
-            if note_model:
-                logger.info(f"Note model: {note_model}")
         except Exception:
             pass
             
@@ -320,6 +305,14 @@ def main() -> None:
         step_idx = 0
         final_answer: str = ""
         while step_idx < args.max_steps:
+            # Check if task has already ended (from RuntimeManager)
+            try:
+                if hasattr(agent, 'rt') and hasattr(agent.rt, 'is_task_ended') and agent.rt.is_task_ended():
+                    logger.info(f"Task ended at step {step_idx} (detected by RuntimeManager)")
+                    break
+            except Exception:
+                pass
+                
             logger.debug(f"=== Action Step {step_idx + 1} ===")
             
             # Generate next action
@@ -362,9 +355,6 @@ def main() -> None:
             except Exception:
                 action_desc = str(action)
 
-            # Log the generated action with human-readable meaning at DEBUG to avoid confusion with post-AGGREGATE execution
-            logger.debug(f"Generated action: {action_desc}")
-            
             # Per-step summary: concise action + reward score
             try:
                 reward_score = action.get("reward_score")

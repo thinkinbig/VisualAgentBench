@@ -129,12 +129,21 @@ def action2str(
         match action["action_type"]:
             case ActionTypes.CLICK:
                 # [ID=X] xxxxx
-                action_str = f"click [{element_id}] where [{element_id}] is {semantic_element}"
+                if semantic_element:
+                    action_str = f"click [{element_id}] where [{element_id}] is {semantic_element}"
+                else:
+                    action_str = f"click [{element_id}]"
             case ActionTypes.TYPE:
                 text = "".join([_id2key[i] for i in action["text"]])
-                action_str = f"type [{element_id}] {text} where [{element_id}] is {semantic_element}"
+                if semantic_element:
+                    action_str = f"type [{element_id}] {text} where [{element_id}] is {semantic_element}"
+                else:
+                    action_str = f"type [{element_id}] {text}"
             case ActionTypes.HOVER:
-                action_str = f"hover [{element_id}] where [{element_id}] is {semantic_element}"
+                if semantic_element:
+                    action_str = f"hover [{element_id}] where [{element_id}] is {semantic_element}"
+                else:
+                    action_str = f"hover [{element_id}]"
             case ActionTypes.SCROLL:
                 action_str = f"scroll [{action['direction']}]"
             case ActionTypes.KEY_PRESS:
@@ -152,7 +161,10 @@ def action2str(
             case ActionTypes.PAGE_FOCUS:
                 action_str = f"page_focus [{action['page_number']}]"
             case ActionTypes.CLEAR:
-                action_str = f"clear [{element_id}] where [{element_id}] is {semantic_element}"
+                if semantic_element:
+                    action_str = f"clear [{element_id}] where [{element_id}] is {semantic_element}"
+                else:
+                    action_str = f"clear [{element_id}]"
             case ActionTypes.SEND_MESSAGE_TO_USER:
                 action_str = f"send_msg_to_user(\"{action['answer']}\")"
             case ActionTypes.NONE:
@@ -168,7 +180,10 @@ def action2str(
                 # [ID=X] xxxxx
                 action_str = f"click [{element_id}] where [{element_id}]"
             case ActionTypes.CLEAR:
-                action_str = f"clear [{element_id}] where [{element_id}] is {semantic_element}"
+                if semantic_element:
+                    action_str = f"clear [{element_id}] where [{element_id}] is {semantic_element}"
+                else:
+                    action_str = f"clear [{element_id}]"
             case ActionTypes.TYPE:
                 text = "".join([_id2key[i] for i in action["text"]])
                 action_str = (
@@ -1825,54 +1840,21 @@ def create_id_based_action(action_str: str) -> Action:
             element_id = match.group(1)
             return create_hover_action(element_id=element_id)
         case "type":
-            # add default enter flag
-            if not (action_str.endswith("[0]") or action_str.endswith("[1]")):
-                action_str += " [1]"
+            if re.match(r"^type\s*\[([^\]]+)\]\s*\[([^\]]+)\]\s*\[([01])\]$", action_str):
+                raise ActionParsingError(f"Invalid type action format: {action_str}. Old format detected. Expected: type [id] content (will automatically press Enter)")
+            if re.match(r"^type\s*\[([^\]]+)\]\s+[^[]+\s+[01]$", action_str):
+                raise ActionParsingError(f"Invalid type action format: {action_str}. Old format detected. Expected: type [id] content (will automatically press Enter)")
+            
+            # Check for new format: type [id] content
+            match = re.match(r"^type\s*\[([^\]]+)\]\s+(.+)$", action_str)
+            if match:
+                element_id, text = match.group(1), match.group(2).strip()
+                # Always add newline to trigger Enter press
+                text += "\n"
+                return create_type_action(text=text, element_id=element_id)
 
-            # 1) Strict bracketed form: type [123] [hello world] [1]
-            match = re.search(r"^type ?\[(\d+)\] ?\[(.+)\] ?\[(\d+)\]$", action_str)
-            if match:
-                element_id, text, enter_flag = match.group(1), match.group(2), match.group(3)
-                if enter_flag == "1":
-                    text += "\n"
-                return create_type_action(text=text, element_id=element_id)
-            # 2) Mixed form with id bracketed but text bare: type [123] hello world [1]
-            match = re.search(r"^type ?\[(\d+)\] ?([^\[]+?) ?\[(\d+)\]$", action_str)
-            if match:
-                element_id, text, enter_flag = match.group(1), match.group(2).strip(), match.group(3)
-                if enter_flag == "1":
-                    text += "\n"
-                return create_type_action(text=text, element_id=element_id)
-            # 3) Fully bare form: type 123 hello world 1
-            match = re.search(r"^type ?(\d+)\s+(.+?)\s+(0|1)$", action_str)
-            if match:
-                element_id, text, enter_flag = match.group(1), match.group(2).strip(), match.group(3)
-                if enter_flag == "1":
-                    text += "\n"
-                return create_type_action(text=text, element_id=element_id)
-            # Fallback: non-numeric name, assume textbox role
-            # 4) Name with brackets around text: type [Search] [hello] [1]
-            match_name = re.search(r"^type ?\[(.+?)\] ?\[(.+)\] ?\[(\d+)\]$", action_str)
-            if match_name:
-                element_name, text, enter_flag = match_name.group(1), match_name.group(2), match_name.group(3)
-                if enter_flag == "1":
-                    text += "\n"
-                return create_type_action(text=text, element_role="textbox", element_name=element_name)
-            # 5) Name with bare text: type [Search] hello world [1]
-            match_name = re.search(r"^type ?\[(.+?)\] ?([^\[]+?) ?\[(\d+)\]$", action_str)
-            if match_name:
-                element_name, text, enter_flag = match_name.group(1), match_name.group(2).strip(), match_name.group(3)
-                if enter_flag == "1":
-                    text += "\n"
-                return create_type_action(text=text, element_role="textbox", element_name=element_name)
-            # 6) Name fully bare: type Search hello world 1
-            match_name = re.search(r"^type\s+(.+?)\s+(.+?)\s+(0|1)$", action_str)
-            if match_name:
-                element_name, text, enter_flag = match_name.group(1).strip(), match_name.group(2).strip(), match_name.group(3)
-                if enter_flag == "1":
-                    text += "\n"
-                return create_type_action(text=text, element_role="textbox", element_name=element_name)
-            raise ActionParsingError(f"Invalid type action {action_str}")
+            # If we reach here, the action didn't match the expected format
+            raise ActionParsingError(f"Invalid type action format: {action_str}. Expected: type [id] content (will automatically press Enter)")
         case "press":
             match = re.search(r"press ?\[(.+)\]", action_str)
             if not match:

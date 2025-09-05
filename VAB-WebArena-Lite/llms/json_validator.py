@@ -5,7 +5,7 @@ import json
 import re
 from typing import Dict, Any, Tuple, Optional
 from pydantic import ValidationError
-from .types import LLMResponse, PlanResponse, ThoughtActionPair, ParsedAction, ActionType
+from .types import LLMResponse, PolicyResponse, ThoughtActionPair, ParsedAction, ActionType
 
 
 class JSONResponseValidator:
@@ -14,7 +14,7 @@ class JSONResponseValidator:
     def __init__(self):
         self.action_patterns = {
             'click': r'click\s*\[([^\]]+)\]',
-            'type': r'type\s*\[([^\]]+)\]\s*\[([^\]]+)\](?:\s*\[([01])\])?',
+            'type': r'type\s*\[([^\]]+)\]\s+([^\[]+)',  # New format: type [AXTREE_ID] CONTENT (auto-enter)
             'hover': r'hover\s*\[([^\]]+)\]',
             'press': r'press\s*\[([^\]]+)\]',
             'scroll': r'scroll\s*\[?(up|down)\]?',
@@ -55,7 +55,7 @@ class JSONResponseValidator:
         response.validation_errors.append("Unable to parse response in any expected format")
         return response
     
-    def _parse_structured_response(self, response: str) -> Optional[PlanResponse]:
+    def _parse_structured_response(self, response: str) -> Optional[PolicyResponse]:
         """Parse structured JSON response with CHECKPOINT/AGGREGATE/BLOCK"""
         # Look for JSON-like structure
         json_match = re.search(r'\{[\s\S]*\}', response)
@@ -65,7 +65,7 @@ class JSONResponseValidator:
         json_str = json_match.group(0)
         try:
             json_data = json.loads(json_str)
-            return PlanResponse.parse_obj(json_data)
+            return PolicyResponse.parse_obj(json_data)
         except (json.JSONDecodeError, ValidationError):
             return None
     
@@ -127,8 +127,7 @@ class JSONResponseValidator:
         elif action_type == "type":
             action_data["element_id"] = match.group(1)
             action_data["content"] = match.group(2)
-            if match.group(3):
-                action_data["press_enter_after"] = match.group(3) == "1"
+            action_data["press_enter_after"] = True  # Always press Enter after typing
         elif action_type == "hover":
             action_data["element_id"] = match.group(1)
         elif action_type == "press":
