@@ -7,21 +7,7 @@ from browser_env.actions import Action, create_send_message_to_user_action
 from browser_env.utils import StateInfo
 
 from .runtime_manager import RuntimeManager
-
-
-@beartype
-def _compose_text_from_nodes(nodes: Dict[str, Any] | None) -> str:
-    if not isinstance(nodes, dict) or not nodes:
-        return ""
-    lines: List[str] = []
-    for _, node in nodes.items():
-        try:
-            t = str(node.get("text", ""))
-        except Exception:
-            t = ""
-        if t:
-            lines.append(t)
-    return "\n".join(lines)
+from .types import ObservationData
 
 
 @beartype
@@ -36,7 +22,7 @@ def build_eval_trajectory(
     - Action: must include an "answer" field for string_match tasks
     """
     # Build minimal StateInfo from runtime meta
-    obs_text = _compose_text_from_nodes(runtime.get_obs_nodes_info())
+    obs_text = ObservationData.compose_observation_from_nodes(runtime.get_obs_nodes_info())
     state: StateInfo = {
         "observation": {
             # Only provide text; no image support needed

@@ -402,8 +402,52 @@ def main() -> None:
             logger.info(f"Saved Playwright trace to {trace_path}")
         except Exception:
             pass
+        
+        # Save trajectory tree to outputs directory
+        try:
+            if hasattr(agent, 'rt') and hasattr(agent.rt, 'export_trajectory_tree_json'):
+                # Create outputs directory structure
+                outputs_dir = Path("outputs")
+                trajectory_dir = outputs_dir / "trajectory"
+                trajectory_dir.mkdir(parents=True, exist_ok=True)
+                
+                # Generate timestamp for unique filenames
+                timestamp = time.strftime('%Y%m%d_%H%M%S')
+                task_id = test_config.get('task_id', 'unknown')
+                
+                # Export trajectory tree as JSON
+                json_content = agent.rt.export_trajectory_tree_json()
+                if json_content and json_content != "{}":
+                    trajectory_json_path = trajectory_dir / f"trajectory_{task_id}_{timestamp}_final.json"
+                    with open(trajectory_json_path, 'w', encoding='utf-8') as f:
+                        f.write(json_content)
+                    logger.info(f"Saved trajectory tree to {trajectory_json_path}")
+                    
+                    # Also export HTML for visualization
+                    try:
+                        html_content = agent.rt.export_trajectory_tree_html()
+                        if html_content:
+                            trajectory_html_path = trajectory_dir / f"trajectory_{task_id}_{timestamp}_final.html"
+                            with open(trajectory_html_path, 'w', encoding='utf-8') as f:
+                                f.write(html_content)
+                            logger.info(f"Saved trajectory tree HTML to {trajectory_html_path}")
+                            
+                            # Also save a copy in log_files for easy access
+                            log_trajectory_path = Path(LOG_FILE_NAME).with_name(Path(LOG_FILE_NAME).stem + "_trajectory.html")
+                            with open(log_trajectory_path, 'w', encoding='utf-8') as f:
+                                f.write(html_content)
+                            logger.info(f"Also saved trajectory HTML to log directory: {log_trajectory_path}")
+                    except Exception as e:
+                        logger.warning(f"Failed to export trajectory tree HTML: {e}")
+                else:
+                    logger.warning("Trajectory tree is empty or not available")
+            else:
+                logger.warning("Agent runtime does not have trajectory tree export capability")
+        except Exception as e:
+            logger.error(f"Failed to save trajectory tree: {e}")
             
         logger.info("Task completed successfully")
+        
         # Evaluate using WebArena evaluator (no image support)
         try:
             eval_traj = build_eval_trajectory(agent.rt, final_answer or "")  # type: ignore[attr-defined]

@@ -24,53 +24,8 @@ class NucleusSampler:
             "fallback_top_p": 0.9,
             "fallback_temperature": 1.0
         }
-    
-    def get_sampling_params(self, attempt: int, total_attempts: int) -> Tuple[float, float]:
-        """Generate dynamic sampling parameters for nucleus sampling.
-        
-        Args:
-            attempt: Current attempt number (0-based)
-            total_attempts: Total number of attempts planned
-            
-        Returns:
-            Tuple of (temperature, top_p) for this sampling attempt
-        """
-        if not self.config.get("enabled", False):
-            # Fallback to original config values
-            return (
-                self.config.get("fallback_temperature", 1.0),
-                self.config.get("fallback_top_p", 0.9)
-            )
-        
-        strategy = self.config.get("diversity_strategy", "random")
-        top_p_range = self.config.get("top_p_range", [0.3, 0.9])
-        temp_range = self.config.get("temperature_range", [0.8, 1.2])
-        
-        if strategy == "random":
-            # Random sampling within ranges
-            temperature = random.uniform(temp_range[0], temp_range[1])
-            top_p = random.uniform(top_p_range[0], top_p_range[1])
-        elif strategy == "progressive":
-            # Progressive sampling: start conservative, become more diverse
-            progress = attempt / max(1, total_attempts - 1)
-            temperature = temp_range[0] + progress * (temp_range[1] - temp_range[0])
-            top_p = top_p_range[0] + progress * (top_p_range[1] - top_p_range[0])
-        elif strategy == "alternating":
-            # Alternating between conservative and diverse
-            if attempt % 2 == 0:
-                temperature = temp_range[0]  # Conservative
-                top_p = top_p_range[0]
-            else:
-                temperature = temp_range[1]  # Diverse
-                top_p = top_p_range[1]
-        else:
-            # Default to random
-            temperature = random.uniform(temp_range[0], temp_range[1])
-            top_p = random.uniform(top_p_range[0], top_p_range[1])
-        
-        return temperature, top_p
 
-    def get_aggressive_sampling_params(self, attempt: int, total_attempts: int) -> Tuple[float, float]:
+    def get_sampling_params(self, attempt: int, total_attempts: int) -> Tuple[float, float]:
         """Generate more aggressive sampling parameters for best-of-n sampling.
         
         Args:
