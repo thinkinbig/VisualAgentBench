@@ -4,7 +4,9 @@ import base64
 import mimetypes
 from pathlib import Path
 
-from .types import TrajRoot, TrajNode, TrajEdge, NodeStatus, BlockInfo
+from .types import TrajRoot, TrajNode, TrajEdge, NodeStatus, BlockInfo, CheckpointInfo, ObservationData
+
+# PDF generation removed - only SVG support
 
 
 class TrajectoryTree:
@@ -78,6 +80,75 @@ class TrajectoryTree:
     def to_json(self) -> str:
         """Convert to JSON string."""
         return json.dumps(self.to_dict(), indent=2, ensure_ascii=False)
+
+    @classmethod
+    def from_json(cls, json_str: str) -> "TrajectoryTree":
+        """Create TrajectoryTree from JSON string."""
+        data = json.loads(json_str)
+        return cls.from_dict(data)
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "TrajectoryTree":
+        """Create TrajectoryTree from dictionary data."""
+        # Parse nodes
+        nodes = []
+        root = None
+        
+        for node_data in data.get("nodes", []):
+            if node_data.get("parent_id") is None:
+                # This is the root node
+                root = TrajRoot(
+                    node_id=node_data["node_id"],
+                    parent_id=node_data.get("parent_id"),
+                    step=node_data["step"],
+                    url=node_data.get("url"),
+                    checkpoint=CheckpointInfo(**node_data["checkpoint"]) if node_data.get("checkpoint") else None,
+                    labels=node_data.get("labels", {}),
+                    status=NodeStatus(node_data.get("status", "candidate")),
+                    candidates=[BlockInfo(**c) for c in node_data.get("candidates", [])],
+                    run_id=node_data.get("run_id", ""),
+                    intent=node_data.get("intent", ""),
+                    meta=node_data.get("meta", {})
+                )
+            else:
+                # This is a regular node
+                node = TrajNode(
+                    node_id=node_data["node_id"],
+                    parent_id=node_data.get("parent_id"),
+                    step=node_data["step"],
+                    url=node_data.get("url"),
+                    checkpoint=CheckpointInfo(**node_data["checkpoint"]) if node_data.get("checkpoint") else None,
+                    labels=node_data.get("labels", {}),
+                    status=NodeStatus(node_data.get("status", "candidate")),
+                    candidates=[BlockInfo(**c) for c in node_data.get("candidates", [])]
+                )
+                nodes.append(node)
+        
+        if root is None:
+            raise ValueError("No root node found in JSON data")
+        
+        # Create trajectory tree
+        tree = cls(root)
+        
+        # Add non-root nodes
+        for node in nodes:
+            tree.add_node(node)
+        
+        # Parse edges
+        for edge_data in data.get("edges", []):
+            edge = TrajEdge(
+                edge_id=edge_data["edge_id"],
+                parent_id=edge_data["parent_id"],
+                child_id=edge_data["child_id"],
+                thought=edge_data.get("thought"),
+                action=edge_data.get("action"),
+                meaning=edge_data.get("meaning"),
+                reward=edge_data.get("reward"),
+                notes=edge_data.get("notes", {})
+            )
+            tree.add_edge(edge)
+        
+        return tree
 
     def to_graphviz(self) -> str:
         """Generate Graphviz DOT format trajectory graph."""
@@ -201,9 +272,9 @@ class TrajectoryTree:
                         "status": status
                     })
                     
-                    # If action is selected, add edge from action node to next state node
-                    if status == "selected":
-                        next_state_id = f"state_{state_index + 1}" if state_index + 1 < len([n for n in self.nodes if not n.is_root()]) else "end"
+                    # Only selected actions connect to next state (if there is one)
+                    if status == "selected" and state_index + 1 < len([n for n in self.nodes if not n.is_root()]):
+                        next_state_id = f"state_{state_index + 1}"
                         edges_data.append({
                             "from": action_node_id,
                             "to": next_state_id,
@@ -312,22 +383,73 @@ class TrajectoryTree:
     def _generate_svg_template(self, nodes_data: List[Dict[str, Any]], edges_data: List[Dict[str, Any]]) -> str:
         """Generate SVG template for trajectory visualization."""
         
-        # Calculate layout dimensions
-        node_width = 300
-        node_height = 120
-        action_width = 250
-        action_height = 80
-        margin = 80
-        level_width = 400  # Horizontal spacing between steps
-        vertical_spacing = 150  # Vertical spacing between nodes
+        # Base dimensions
+        margin = 60
+        node_width = 200
+        node_height = 100
+        action_width = 150
+        action_height = 60
+        action_spacing = 20
+        vertical_gap = 40  # Gap between state and actions
+        horizontal_gap = 100  # Gap between steps
         
-        # Calculate total dimensions based on actual content
+        # Analyze content to determine layout
         max_step = max((node['step'] for node in nodes_data), default=0)
-        total_width = max_step * level_width + node_width + margin * 2
-        total_height = len(nodes_data) * vertical_spacing + margin * 2
+        step_info = {}
+        
+        for step in range(max_step + 1):
+            step_nodes = [n for n in nodes_data if n['step'] == step]
+            state_nodes = [n for n in step_nodes if n['type'] == 'state']
+            action_nodes = [n for n in step_nodes if n['type'] == 'action']
+            
+            step_info[step] = {
+                'state_nodes': state_nodes,
+                'action_nodes': action_nodes,
+                'action_count': len(action_nodes)
+            }
+        
+        # Calculate optimal layout for each step
+        step_positions = {}
+        max_width = 0
+        total_height = margin * 2
+        
+        for step in range(max_step + 1):
+            info = step_info[step]
+            state_nodes = info['state_nodes']
+            action_nodes = info['action_nodes']
+            
+            # Calculate step width based on actions
+            if action_nodes:
+                # Calculate how many actions can fit in one row
+                available_width = 1200  # Reasonable max width
+                actions_per_row = max(1, available_width // (action_width + action_spacing))
+                rows = (len(action_nodes) + actions_per_row - 1) // actions_per_row
+                step_width = min(actions_per_row * (action_width + action_spacing) - action_spacing, available_width)
+            else:
+                step_width = node_width
+                rows = 1
+            
+            step_positions[step] = {
+                'x': margin + step * (step_width + horizontal_gap),
+                'y': margin + step * (node_height + vertical_gap + action_height * rows + vertical_gap),
+                'width': step_width,
+                'rows': rows
+            }
+            
+            max_width = max(max_width, step_positions[step]['x'] + step_width)
+            total_height = max(total_height, step_positions[step]['y'] + node_height + vertical_gap + action_height * rows)
+        
+        # Set final dimensions
+        total_width = max_width + margin
+        total_height += margin
+        
+        # Calculate adaptive font sizes
+        base_font_size = 12
+        title_font_size = 14
+        text_font_size = 12
         
         svg_lines = [
-            f'<svg width="{total_width}" height="{total_height}" xmlns="http://www.w3.org/2000/svg">',
+            f'<svg width="{total_width}" height="{total_height}" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">',
             '  <defs>',
             '    <style>',
             '      .node { fill: #e1f5fe; stroke: #01579b; stroke-width: 2; cursor: pointer; }',
@@ -339,8 +461,8 @@ class TrajectoryTree:
             '      .edge { stroke: #666; stroke-width: 2; fill: none; }',
             '      .execution-edge { stroke: #4caf50; stroke-width: 3; fill: none; }',
             '      .action-edge { stroke: #ff9800; stroke-width: 1; fill: none; }',
-            '      .text { font-family: Arial, sans-serif; font-size: 12px; text-anchor: middle; }',
-            '      .title-text { font-family: Arial, sans-serif; font-size: 14px; font-weight: bold; text-anchor: middle; }',
+            f'      .text {{ font-family: Arial, sans-serif; font-size: {text_font_size}px; text-anchor: middle; }}',
+            f'      .title-text {{ font-family: Arial, sans-serif; font-size: {title_font_size}px; font-weight: bold; text-anchor: middle; }}',
             '      .node:hover { stroke-width: 4; }',
             '    </style>',
             '  </defs>',
@@ -359,33 +481,40 @@ class TrajectoryTree:
         # Position root node
         root_node = next((n for n in nodes_data if n['type'] == 'root'), None)
         if root_node:
-            x = margin
-            y = margin
-            node_positions[root_node['id']] = (x, y)
+            root_pos = step_positions.get(0, {'x': margin, 'y': margin})
+            node_positions[root_node['id']] = (root_pos['x'], root_pos['y'])
         
-        # Position state and action nodes by step
-        step_groups = {}
-        for node in nodes_data:
-            if node['type'] != 'root':
-                step = node['step']
-                if step not in step_groups:
-                    step_groups[step] = []
-                step_groups[step].append(node)
-        
-        for step in sorted(step_groups.keys()):
-            x = margin + step * level_width
-            y = margin + step * vertical_spacing
+        # Position all other nodes
+        for step in range(max_step + 1):
+            if step == 0:
+                continue  # Skip root, already positioned
+                
+            pos = step_positions.get(step, {'x': margin, 'y': margin})
+            info = step_info.get(step, {'state_nodes': [], 'action_nodes': []})
             
-            # Position state nodes first
-            state_nodes = [n for n in step_groups[step] if n['type'] == 'state']
-            for i, state_node in enumerate(state_nodes):
-                node_positions[state_node['id']] = (x, y + i * (node_height + 20))
+            # Position state nodes
+            for state_node in info['state_nodes']:
+                state_x = pos['x'] + (pos['width'] - node_width) // 2  # Center in step width
+                node_positions[state_node['id']] = (state_x, pos['y'])
             
-            # Position action nodes below state nodes
-            action_nodes = [n for n in step_groups[step] if n['type'] == 'action']
-            for i, action_node in enumerate(action_nodes):
-                action_y = y + len(state_nodes) * (node_height + 20) + 20 + i * (action_height + 10)
-                node_positions[action_node['id']] = (x + 30, action_y)
+            # Position action nodes
+            action_nodes = info['action_nodes']
+            if action_nodes:
+                # Calculate layout for actions
+                actions_per_row = max(1, pos['width'] // (action_width + action_spacing))
+                rows = (len(action_nodes) + actions_per_row - 1) // actions_per_row
+                
+                # Center actions in the step width
+                total_action_width = min(actions_per_row, len(action_nodes)) * (action_width + action_spacing) - action_spacing
+                start_x = pos['x'] + (pos['width'] - total_action_width) // 2
+                action_y = pos['y'] + node_height + vertical_gap
+                
+                for i, action_node in enumerate(action_nodes):
+                    row = i // actions_per_row
+                    col = i % actions_per_row
+                    action_x = start_x + col * (action_width + action_spacing)
+                    action_y_offset = action_y + row * (action_height + 10)
+                    node_positions[action_node['id']] = (action_x, action_y_offset)
         
         # Draw edges
         for edge in edges_data:
@@ -448,13 +577,15 @@ class TrajectoryTree:
             width = node_width if node_type != 'action' else action_width
             height = node_height if node_type != 'action' else action_height
             
-            # Add click event for state nodes to open screenshot
-            click_event = ""
+            # Add clickable link for state nodes to open screenshot
             if node_type == 'state' and node.get('screenshot_path'):
                 screenshot_path = node['screenshot_path']
-                click_event = f' onclick="openScreenshot(\'{screenshot_path}\')"'
-            
-            svg_lines.append(f'  <rect x="{x}" y="{y}" width="{width}" height="{height}" class="{node_class}"{click_event}/>')
+                # Use <a> tag instead of onclick for better PDF compatibility
+                svg_lines.append(f'  <a xlink:href="file://{screenshot_path}" target="_blank">')
+                svg_lines.append(f'    <rect x="{x}" y="{y}" width="{width}" height="{height}" class="{node_class}"/>')
+                svg_lines.append(f'  </a>')
+            else:
+                svg_lines.append(f'  <rect x="{x}" y="{y}" width="{width}" height="{height}" class="{node_class}"/>')
             
             # Draw node text
             text_x = x + width // 2
@@ -468,9 +599,10 @@ class TrajectoryTree:
                     line_y = text_y - (len(lines) - 1) * 8 + i * 16
                     svg_lines.append(f'  <text x="{text_x}" y="{line_y}" class="title-text">{line}</text>')
             else:
-                # Split long labels into multiple lines
+                # Adaptive text wrapping based on node size
                 label = node['label']
-                max_chars = 30 if node_type == 'action' else 40
+                max_chars = int((action_width if node_type == 'action' else node_width) / (text_font_size * 0.6))  # Adaptive based on node width
+                max_chars = max(10, min(max_chars, 50))  # Reasonable bounds
                 
                 if len(label) > max_chars:
                     words = label.split()
@@ -488,13 +620,20 @@ class TrajectoryTree:
                 else:
                     lines = [label]
                 
+                # Limit to reasonable number of lines
+                max_lines = 3 if node_type == 'action' else 5
+                if len(lines) > max_lines:
+                    lines = lines[:max_lines-1] + [lines[max_lines-1][:max_chars-3] + "..."]
+                
+                line_height = int(text_font_size * 1.2)
                 for i, line in enumerate(lines):
-                    line_y = text_y - (len(lines) - 1) * 8 + i * 16
+                    line_y = text_y - (len(lines) - 1) * line_height // 2 + i * line_height
                     svg_lines.append(f'  <text x="{text_x}" y="{line_y}" class="text">{line}</text>')
         
         svg_lines.append('</svg>')
         
         return '\n'.join(svg_lines)
+
 
     def _generate_graphviz_nodes(self) -> List[str]:
         """Generate Graphviz node definitions."""

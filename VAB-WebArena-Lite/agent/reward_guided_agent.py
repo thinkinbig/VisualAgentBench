@@ -391,7 +391,6 @@ class RewardGuidedAgent(Agent):
                 
         return current[0]
 
-
     # ---------------------------- Public API ----------------------------
     @beartype
     def next_action(
@@ -422,6 +421,8 @@ class RewardGuidedAgent(Agent):
         except Exception:
             pass
 
+        # Note: We'll add candidate edges after knockout to avoid duplicating the winner
+
         # Log all candidates in a consolidated list (Thought | Action | Meaning)
         try:
             self.logger.info(f"[CANDIDATES_GENERATED] Generated {len(candidates)} candidate actions:")
@@ -439,6 +440,12 @@ class RewardGuidedAgent(Agent):
 
         if not winner:
             raise ValueError("No candidate actions available")
+        
+        # Add all non-winning candidates as edges to the trajectory tree
+        try:
+            self.rt.add_non_winner_candidate_edges(candidates, winner)
+        except Exception:
+            pass
 
         
         # Defer trajectory updates until after environment executes the action

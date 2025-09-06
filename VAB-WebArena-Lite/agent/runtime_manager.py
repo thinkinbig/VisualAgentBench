@@ -569,6 +569,43 @@ class RuntimeManager:
         # Add to tree
         self._trajectory_tree.add_edge(new_edge)
 
+    def add_non_winner_candidate_edges(self, candidates: List[BlockInfo], winner: BlockInfo) -> None:
+        """Add all non-winning candidate actions as edges to the trajectory tree."""
+        if not candidates or not winner:
+            return
+            
+        # Get the current node ID (the one we're adding candidates to)
+        current_node_id = self.get_current_node_id()
+        if not current_node_id:
+            return
+            
+        # Add each non-winning candidate as an edge
+        for candidate in candidates:
+            # Skip the winner to avoid duplication
+            if candidate.action == winner.action:
+                continue
+                
+            try:
+                # Generate meaning for the action
+                meaning = self._describe_action(candidate.action)
+                
+                # Create a temporary child node ID for the candidate
+                # We'll use a special prefix to indicate these are candidate edges
+                child_id = f"candidate_{candidate.action.replace(' ', '_').replace('[', '').replace(']', '')}_{len(self._trajectory_tree.edges)}"
+                
+                # Add the edge using the runtime manager's method
+                self.add_trajectory_edge(
+                    parent_id=current_node_id,
+                    child_id=child_id,
+                    thought=candidate.thought,
+                    action=candidate.action,
+                    meaning=meaning
+                )
+                
+                self.logger.info(f"[CANDIDATE_EDGE] Added edge for non-winning candidate: {candidate.action} -> {meaning}")
+                
+            except Exception as e:
+                self.logger.error(f"Failed to add candidate edge for {candidate.action}: {e}")
 
     def select_node(self, node_id: str) -> None:
         """Mark a node as selected (moved from candidate to selected state)."""
