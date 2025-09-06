@@ -92,21 +92,21 @@ class TrajectoryTree:
         lines.append("}")
         return "\n".join(lines)
 
-    def to_interactive_html(self, output_path: str = None) -> str:
-        """Generate unified interactive HTML trajectory graph, all actions as nodes distinguished by status."""
+    def to_svg(self, output_path: str = None) -> str:
+        """Generate SVG trajectory graph, all actions as nodes distinguished by status."""
         
         # Convert tree structure to visualization data
         nodes_data, edges_data = self._build_visualization_data()
         
-        # Generate HTML content
-        html_content = self._generate_html_template(nodes_data, edges_data)
+        # Generate SVG content
+        svg_content = self._generate_svg_template(nodes_data, edges_data)
         
-        # Save HTML file
+        # Save SVG file
         if output_path:
             with open(output_path, 'w', encoding='utf-8') as f:
-                f.write(html_content)
+                f.write(svg_content)
         
-        return html_content
+        return svg_content
 
     def _build_visualization_data(self) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
         """Build visualization data from the tree structure."""
@@ -309,6 +309,193 @@ class TrajectoryTree:
         
         return nodes_data, edges_data
 
+    def _generate_svg_template(self, nodes_data: List[Dict[str, Any]], edges_data: List[Dict[str, Any]]) -> str:
+        """Generate SVG template for trajectory visualization."""
+        
+        # Calculate layout dimensions
+        node_width = 300
+        node_height = 120
+        action_width = 250
+        action_height = 80
+        margin = 80
+        level_width = 400  # Horizontal spacing between steps
+        vertical_spacing = 150  # Vertical spacing between nodes
+        
+        # Calculate total dimensions based on actual content
+        max_step = max((node['step'] for node in nodes_data), default=0)
+        total_width = max_step * level_width + node_width + margin * 2
+        total_height = len(nodes_data) * vertical_spacing + margin * 2
+        
+        svg_lines = [
+            f'<svg width="{total_width}" height="{total_height}" xmlns="http://www.w3.org/2000/svg">',
+            '  <defs>',
+            '    <style>',
+            '      .node { fill: #e1f5fe; stroke: #01579b; stroke-width: 2; cursor: pointer; }',
+            '      .root { fill: #bbdefb; stroke: #0277bd; stroke-width: 3; cursor: pointer; }',
+            '      .state { fill: #f3e5f5; stroke: #7b1fa2; stroke-width: 2; cursor: pointer; }',
+            '      .action { fill: #fff3e0; stroke: #f57c00; stroke-width: 1; cursor: pointer; }',
+            '      .selected { fill: #c8e6c9; stroke: #388e3c; stroke-width: 2; cursor: pointer; }',
+            '      .candidate { fill: #ffecb3; stroke: #f9a825; stroke-width: 1; cursor: pointer; }',
+            '      .edge { stroke: #666; stroke-width: 2; fill: none; }',
+            '      .execution-edge { stroke: #4caf50; stroke-width: 3; fill: none; }',
+            '      .action-edge { stroke: #ff9800; stroke-width: 1; fill: none; }',
+            '      .text { font-family: Arial, sans-serif; font-size: 12px; text-anchor: middle; }',
+            '      .title-text { font-family: Arial, sans-serif; font-size: 14px; font-weight: bold; text-anchor: middle; }',
+            '      .node:hover { stroke-width: 4; }',
+            '    </style>',
+            '  </defs>',
+            '  <script>',
+            '    function openScreenshot(screenshotPath) {',
+            '      if (screenshotPath) {',
+            '        window.open("file://" + screenshotPath, "_blank");',
+            '      }',
+            '    }',
+            '  </script>'
+        ]
+        
+        # Position nodes
+        node_positions = {}
+        
+        # Position root node
+        root_node = next((n for n in nodes_data if n['type'] == 'root'), None)
+        if root_node:
+            x = margin
+            y = margin
+            node_positions[root_node['id']] = (x, y)
+        
+        # Position state and action nodes by step
+        step_groups = {}
+        for node in nodes_data:
+            if node['type'] != 'root':
+                step = node['step']
+                if step not in step_groups:
+                    step_groups[step] = []
+                step_groups[step].append(node)
+        
+        for step in sorted(step_groups.keys()):
+            x = margin + step * level_width
+            y = margin + step * vertical_spacing
+            
+            # Position state nodes first
+            state_nodes = [n for n in step_groups[step] if n['type'] == 'state']
+            for i, state_node in enumerate(state_nodes):
+                node_positions[state_node['id']] = (x, y + i * (node_height + 20))
+            
+            # Position action nodes below state nodes
+            action_nodes = [n for n in step_groups[step] if n['type'] == 'action']
+            for i, action_node in enumerate(action_nodes):
+                action_y = y + len(state_nodes) * (node_height + 20) + 20 + i * (action_height + 10)
+                node_positions[action_node['id']] = (x + 30, action_y)
+        
+        # Draw edges
+        for edge in edges_data:
+            from_pos = node_positions.get(edge['from'])
+            to_pos = node_positions.get(edge['to'])
+            
+            if from_pos and to_pos:
+                x1, y1 = from_pos
+                x2, y2 = to_pos
+                
+                # Adjust positions to center of nodes
+                from_node = next((n for n in nodes_data if n['id'] == edge['from']), None)
+                to_node = next((n for n in nodes_data if n['id'] == edge['to']), None)
+                
+                # Calculate center positions based on node type
+                if from_node and from_node['type'] == 'root':
+                    x1 += node_width // 2
+                    y1 += node_height // 2
+                elif from_node and from_node['type'] == 'state':
+                    x1 += node_width // 2
+                    y1 += node_height // 2
+                elif from_node and from_node['type'] == 'action':
+                    x1 += action_width // 2
+                    y1 += action_height // 2
+                
+                if to_node and to_node['type'] == 'state':
+                    x2 += node_width // 2
+                    y2 += node_height // 2
+                elif to_node and to_node['type'] == 'action':
+                    x2 += action_width // 2
+                    y2 += action_height // 2
+                
+                edge_class = "execution-edge" if edge['type'] == 'execution_edge' else "action-edge"
+                svg_lines.append(f'  <line x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}" class="{edge_class}"/>')
+        
+        # Draw nodes
+        for node in nodes_data:
+            pos = node_positions.get(node['id'])
+            if not pos:
+                continue
+                
+            x, y = pos
+            node_type = node['type']
+            status = node.get('status', '')
+            
+            # Determine node class
+            if node_type == 'root':
+                node_class = 'root'
+            elif node_type == 'state':
+                node_class = 'state'
+            elif node_type == 'action':
+                if status == 'selected':
+                    node_class = 'selected'
+                else:
+                    node_class = 'candidate'
+            else:
+                node_class = 'node'
+            
+            # Draw node rectangle with click event
+            width = node_width if node_type != 'action' else action_width
+            height = node_height if node_type != 'action' else action_height
+            
+            # Add click event for state nodes to open screenshot
+            click_event = ""
+            if node_type == 'state' and node.get('screenshot_path'):
+                screenshot_path = node['screenshot_path']
+                click_event = f' onclick="openScreenshot(\'{screenshot_path}\')"'
+            
+            svg_lines.append(f'  <rect x="{x}" y="{y}" width="{width}" height="{height}" class="{node_class}"{click_event}/>')
+            
+            # Draw node text
+            text_x = x + width // 2
+            text_y = y + height // 2
+            
+            if node_type == 'root':
+                # Split root label into multiple lines
+                label = node["label"]
+                lines = label.split('\n')
+                for i, line in enumerate(lines):
+                    line_y = text_y - (len(lines) - 1) * 8 + i * 16
+                    svg_lines.append(f'  <text x="{text_x}" y="{line_y}" class="title-text">{line}</text>')
+            else:
+                # Split long labels into multiple lines
+                label = node['label']
+                max_chars = 30 if node_type == 'action' else 40
+                
+                if len(label) > max_chars:
+                    words = label.split()
+                    lines = []
+                    current_line = ""
+                    for word in words:
+                        if len(current_line + " " + word) <= max_chars:
+                            current_line += (" " + word) if current_line else word
+                        else:
+                            if current_line:
+                                lines.append(current_line)
+                            current_line = word
+                    if current_line:
+                        lines.append(current_line)
+                else:
+                    lines = [label]
+                
+                for i, line in enumerate(lines):
+                    line_y = text_y - (len(lines) - 1) * 8 + i * 16
+                    svg_lines.append(f'  <text x="{text_x}" y="{line_y}" class="text">{line}</text>')
+        
+        svg_lines.append('</svg>')
+        
+        return '\n'.join(svg_lines)
+
     def _generate_graphviz_nodes(self) -> List[str]:
         """Generate Graphviz node definitions."""
         lines = []
@@ -395,273 +582,3 @@ class TrajectoryTree:
         
         # Fallback
         return f"temp_{node_id}" if is_temp else node_id
-
-    def _generate_html_template(self, nodes_data: List[Dict[str, Any]], edges_data: List[Dict[str, Any]]) -> str:
-        """Generate the complete HTML template with embedded data."""
-        return f"""<!DOCTYPE html>
-<html>
-<head>
-    <title>Interactive Trajectory Visualization</title>
-    <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
-    <style>
-        {self._get_css_styles()}
-    </style>
-</head>
-<body>
-    <h1>Interactive Trajectory Visualization</h1>
-    <div id="network"></div>
-    <div id="info">
-        <h3>Node Information</h3>
-        <p>Click on a node to view details</p>
-    </div>
-
-    <script>
-        {self._get_javascript_code(nodes_data, edges_data)}
-    </script>
-</body>
-</html>"""
-
-    def _get_css_styles(self) -> str:
-        """Get CSS styles for the visualization."""
-        return """
-        body {
-            font-family: Arial, sans-serif;
-            margin: 0;
-            padding: 20px;
-            background-color: #f5f5f5;
-        }
-        #network {
-            width: 100%;
-            height: 600px;
-            border: 1px solid #ddd;
-            background-color: white;
-            border-radius: 8px;
-        }
-        #info {
-            margin-top: 20px;
-            padding: 15px;
-            background-color: white;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-        #screenshot {
-            max-width: 100%;
-            max-height: 400px;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-            margin: 10px 0;
-        }
-        .candidate {
-            margin: 5px 0;
-            padding: 8px;
-            background-color: #f8f9fa;
-            border-left: 3px solid #dc3545;
-            border-radius: 4px;
-        }
-        .executed-candidate {
-            border-left-color: #28a745;
-        }
-        .node-info {
-            margin: 10px 0;
-        }
-        .url {
-            color: #007bff;
-            word-break: break-all;
-        }
-        """
-
-    def _get_javascript_code(self, nodes_data: List[Dict[str, Any]], edges_data: List[Dict[str, Any]]) -> str:
-        """Get JavaScript code for the visualization."""
-        # Create a separate data structure without screenshots for JSON serialization
-        nodes_data_no_screenshots = []
-        for node in nodes_data:
-            node_copy = node.copy()
-            if 'screenshot' in node_copy:
-                del node_copy['screenshot']  # Remove screenshot from JSON
-            nodes_data_no_screenshots.append(node_copy)
-        
-        # Store screenshots and mime types separately
-        screenshots = {}
-        mime_types = {}
-        for node in nodes_data:
-            if 'screenshot' in node and node['screenshot']:
-                screenshots[node['id']] = node['screenshot']
-                mime_types[node['id']] = node.get('mime', 'image/png')
-        
-        return f"""
-        // Screenshot data (stored separately to avoid JSON serialization issues)
-        const screenshots = {json.dumps(screenshots)};
-        const mimeTypes = {json.dumps(mime_types)};
-        
-        // Data
-        const nodes = new vis.DataSet({json.dumps(nodes_data_no_screenshots, indent=2)});
-        const edges = new vis.DataSet({json.dumps(edges_data, indent=2)});
-        
-        // Network configuration
-        const container = document.getElementById('network');
-        const data = {{ nodes: nodes, edges: edges }};
-        const options = {{
-            nodes: {{
-                shape: 'box',
-                font: {{ size: 14 }},
-                borderWidth: 2,
-                shadow: true,
-                color: {{
-                    background: '#e1f5fe',
-                    border: '#01579b',
-                    highlight: {{
-                        background: '#b3e5fc',
-                        border: '#0277bd'
-                    }}
-                }},
-                chosen: {{
-                    node: function(values, id, selected, hovering) {{
-                        if (selected || hovering) {{
-                            values.color.border = '#ff6f00';
-                            values.color.background = '#fff3e0';
-                        }}
-                    }}
-                }}
-            }},
-            edges: {{
-                font: {{ size: 12 }},
-                arrows: {{ to: {{ enabled: true, scaleFactor: 1 }} }},
-                smooth: {{ type: 'continuous' }},
-                color: {{
-                    color: '#666',
-                    highlight: '#ff6f00'
-                }}
-            }},
-            layout: {{
-                hierarchical: {{
-                    direction: 'UD',
-                    sortMethod: 'directed'
-                }}
-            }},
-            physics: {{
-                enabled: false
-            }}
-        }};
-        
-        // Set different styles for different node types
-        nodes.forEach(function(node) {{
-            if (node.type === 'root') {{
-                node.color = {{
-                    background: '#e3f2fd',
-                    border: '#1976d2'
-                }};
-                node.shape = 'box';
-            }} else if (node.type === 'state') {{
-                node.color = {{
-                    background: '#e8f5e8',
-                    border: '#388e3c'
-                }};
-                node.shape = 'box';
-            }} else if (node.type === 'action') {{
-                node.color = {{
-                    background: '#fff8e1',
-                    border: '#f57c00'
-                }};
-                node.shape = 'ellipse';
-                node.font = {{ size: 12 }};
-            }}
-        }});
-        
-        // Set different styles for different edge types
-        edges.forEach(function(edge) {{
-            if (edge.type === 'execution_edge' && edge.status === 'selected') {{
-                edge.color = {{
-                    color: '#4caf50',
-                    highlight: '#2e7d32'
-                }};
-                edge.width = 3;
-            }} else if (edge.type === 'action_edge' && edge.status === 'candidate') {{
-                edge.color = {{
-                    color: '#ff9800',
-                    highlight: '#f57c00'
-                }};
-                edge.dashes = [5, 5];
-                edge.width = 1;
-            }} else if (edge.type === 'action_edge' && edge.status === 'selected') {{
-                edge.color = {{
-                    color: '#4caf50',
-                    highlight: '#2e7d32'
-                }};
-                edge.width = 2;
-            }}
-        }});
-        
-        const network = new vis.Network(container, data, options);
-        
-        // Node click event
-        network.on('click', function (params) {{
-            console.log('Click event triggered!', params);
-            if (params.nodes.length > 0) {{
-                const nodeId = params.nodes[0];
-                const node = nodes.get(nodeId);
-                console.log('Clicked node:', node);
-                displayNodeInfo(node);
-            }} else {{
-                console.log('No nodes clicked');
-            }}
-        }});
-        
-        function displayNodeInfo(node) {{
-            console.log('displayNodeInfo called with node:', node);
-            const infoDiv = document.getElementById('info');
-            let html = `<h3>Node: ${{node.label}}</h3>`;
-            
-            if (node.type === 'root') {{
-                html += `<p><strong>Task:</strong> ${{node.label.split('\\n')[1] || 'N/A'}}</p>`;
-            }} else if (node.type === 'action') {{
-                html += `<div class="node-info">`;
-                html += `<p><strong>Type:</strong> Candidate Action</p>`;
-                html += `<p><strong>Parent Step:</strong> ${{node.step}}</p>`;
-                html += `<p><strong>Action:</strong> ${{node.action}}</p>`;
-                if (node.thought) {{
-                    html += `<p><strong>Thought:</strong> ${{node.thought}}</p>`;
-                }}
-                html += `</div>`;
-            }} else {{
-                console.log('Processing state node, screenshot available:', !!node.screenshot);
-                html += `<div class="node-info">`;
-                html += `<p><strong>Step:</strong> ${{node.step}}</p>`;
-                if (node.url) {{
-                    html += `<p><strong>URL:</strong> <span class="url">${{node.url}}</span></p>`;
-                }}
-                html += `</div>`;
-                
-                // Display screenshot
-                console.log('Looking for screenshot for node:', node.id);
-                console.log('Available screenshots:', Object.keys(screenshots));
-                const screenshotData = screenshots[node.id];
-                const mimeType = mimeTypes[node.id] || 'image/png';
-                console.log('Screenshot data found:', !!screenshotData);
-                console.log('MIME type:', mimeType);
-                if (screenshotData) {{
-                    console.log('Adding screenshot to HTML from screenshots object');
-                    console.log('Screenshot data length:', screenshotData.length);
-                    html += `<h4>Screenshot:</h4>`;
-                    html += `<img id="screenshot" src="data:${{mimeType}};base64,${{screenshotData}}" alt="Screenshot" style="max-width: 100%; max-height: 400px; border: 1px solid #ddd; border-radius: 4px;">`;
-                }} else if (node.screenshot_path) {{
-                    console.log('Using screenshot_path fallback');
-                    html += `<h4>Screenshot:</h4>`;
-                    // Convert absolute path to file:// URL as fallback
-                    let screenshotPath = node.screenshot_path;
-                    if (screenshotPath.startsWith('/')) {{
-                        screenshotPath = 'file://' + screenshotPath;
-                    }}
-                    html += `<img id="screenshot" src="${{screenshotPath}}" alt="Screenshot" style="max-width: 100%; max-height: 400px; border: 1px solid #ddd; border-radius: 4px;">`;
-                }} else {{
-                    console.log('No screenshot available');
-                    html += `<p><em>No screenshot available</em></p>`;
-                }}
-            }}
-            
-            console.log('Final HTML length:', html.length);
-            infoDiv.innerHTML = html;
-        }}
-        
-        // Initialize display with root node information
-        displayNodeInfo(nodes.get('root'));
-        """

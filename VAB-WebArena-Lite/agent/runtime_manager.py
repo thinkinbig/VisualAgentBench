@@ -524,7 +524,7 @@ class RuntimeManager:
         """Get the current trajectory tree."""
         return self._trajectory_tree
 
-    def add_trajectory_node(self, parent_id: str, url: Optional[str] = None, checkpoint: Optional[CheckpointInfo] = None) -> str:
+    def add_trajectory_node(self, parent_id: str, url: Optional[str] = None, checkpoint: Optional[CheckpointInfo] = None, candidates: Optional[List[BlockInfo]] = None) -> str:
         """Add a new trajectory node to the tree."""
         if self._trajectory_tree is None:
             return ""
@@ -539,7 +539,8 @@ class RuntimeManager:
             step=self.get_step(),
             url=url,
             checkpoint=checkpoint,
-            status=NodeStatus.CANDIDATE  # New nodes start as candidates
+            status=NodeStatus.CANDIDATE,  # New nodes start as candidates
+            candidates=candidates or []  # Add candidates if provided
         )
         
         # Add to tree
@@ -610,12 +611,16 @@ class RuntimeManager:
         # Get current checkpoint
         checkpoint = self.get_checkpoint()
         
+        # Get candidates that were generated for this step
+        candidates = self.get_current_node_candidates()
+        
         # Add new node
         parent_id = self.get_parent_node_id()
         new_node_id = self.add_trajectory_node(
             parent_id=parent_id,
             url=url,
-            checkpoint=checkpoint
+            checkpoint=checkpoint,
+            candidates=candidates
         )
         
         # Add edge from parent to new node
@@ -648,20 +653,19 @@ class RuntimeManager:
         return self._trajectory_tree.to_json()
 
     def record_candidates(self, candidates: List[BlockInfo]) -> None:
-        """Record candidate actions to the current node."""
-        if self._trajectory_tree is None:
-            return
-        current_node_id = self.get_current_node_id()
-        if current_node_id:
-            self._trajectory_tree.set_candidates_at_node(current_node_id, candidates)
+        """Record candidate actions for the current step (will be added to node after action execution)."""
+        # Store candidates in runtime for later use when creating the node
+        self._runtime.current_round_samples = [c.action for c in candidates]
+        # Also store the full candidate objects in a temporary location
+        if not hasattr(self, '_pending_candidates'):
+            self._pending_candidates = []
+        self._pending_candidates = candidates
 
     def get_current_node_candidates(self) -> List[BlockInfo]:
-        """Get candidate actions for the current node."""
-        if self._trajectory_tree is None:
-            return []
-        current_node_id = self.get_current_node_id()
-        if current_node_id:
-            return self._trajectory_tree.get_candidates_at_node(current_node_id)
+        """Get candidate actions for the current step."""
+        # Return pending candidates if available
+        if hasattr(self, '_pending_candidates'):
+            return self._pending_candidates
         return []
 
     def get_trajectory_tree_stats(self) -> TrajectoryTreeStats:
