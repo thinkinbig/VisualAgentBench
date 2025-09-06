@@ -1,6 +1,7 @@
 from typing import List, Optional, Dict, Any
 import json
 import base64
+import mimetypes
 from pathlib import Path
 
 from .types import TrajRoot, TrajNode, TrajEdge, NodeStatus, BlockInfo
@@ -132,17 +133,19 @@ class TrajectoryTree:
             # Handle screenshots
             screenshot_data = None
             screenshot_path = None
-            if (node.checkpoint and 
-                node.checkpoint.observation and 
-                node.checkpoint.observation.screenshot_path and 
-                Path(node.checkpoint.observation.screenshot_path).exists()):
-                screenshot_path = node.checkpoint.observation.screenshot_path
-                try:
-                    with open(node.checkpoint.observation.screenshot_path, 'rb') as f:
-                        img_data = f.read()
-                        screenshot_data = base64.b64encode(img_data).decode('utf-8')
-                except Exception:
-                    screenshot_data = None
+            mime = None
+
+            if node.checkpoint and node.checkpoint.observation:
+                screenshot_path = node.checkpoint.observation.screenshot_path  # 先原样记录
+                if screenshot_path:
+                    mime, _ = mimetypes.guess_type(screenshot_path)
+                    mime = mime or "image/png"
+                    try:
+                        with open(screenshot_path, "rb") as f:
+                            img_data = f.read()
+                            screenshot_data = base64.b64encode(img_data).decode("ascii")
+                    except Exception:
+                        screenshot_data = None  # 读不到就走回退
             
             # Add state node (representing reaching a certain state)
             state_node_id = f"state_{state_index}"
@@ -153,7 +156,8 @@ class TrajectoryTree:
                 "step": node.step,
                 "url": node.url,
                 "screenshot": screenshot_data,
-                "screenshot_path": screenshot_path,
+                "screenshot_path": screenshot_path,  # 总是有（如果传入了）
+                "mime": mime or "image/png",
                 "status": "state"
             })
             
@@ -476,15 +480,18 @@ class TrajectoryTree:
                 del node_copy['screenshot']  # Remove screenshot from JSON
             nodes_data_no_screenshots.append(node_copy)
         
-        # Store screenshots separately
+        # Store screenshots and mime types separately
         screenshots = {}
+        mime_types = {}
         for node in nodes_data:
             if 'screenshot' in node and node['screenshot']:
                 screenshots[node['id']] = node['screenshot']
+                mime_types[node['id']] = node.get('mime', 'image/png')
         
         return f"""
         // Screenshot data (stored separately to avoid JSON serialization issues)
         const screenshots = {json.dumps(screenshots)};
+        const mimeTypes = {json.dumps(mime_types)};
         
         // Data
         const nodes = new vis.DataSet({json.dumps(nodes_data_no_screenshots, indent=2)});
@@ -628,12 +635,14 @@ class TrajectoryTree:
                 console.log('Looking for screenshot for node:', node.id);
                 console.log('Available screenshots:', Object.keys(screenshots));
                 const screenshotData = screenshots[node.id];
+                const mimeType = mimeTypes[node.id] || 'image/png';
                 console.log('Screenshot data found:', !!screenshotData);
+                console.log('MIME type:', mimeType);
                 if (screenshotData) {{
                     console.log('Adding screenshot to HTML from screenshots object');
                     console.log('Screenshot data length:', screenshotData.length);
                     html += `<h4>Screenshot:</h4>`;
-                    html += `<img id="screenshot" src="data:image/png;base64,${{screenshotData}}" alt="Screenshot" style="max-width: 100%; max-height: 400px; border: 1px solid #ddd; border-radius: 4px;">`;
+                    html += `<img id="screenshot" src="data:${{mimeType}};base64,${{screenshotData}}" alt="Screenshot" style="max-width: 100%; max-height: 400px; border: 1px solid #ddd; border-radius: 4px;">`;
                 }} else if (node.screenshot_path) {{
                     console.log('Using screenshot_path fallback');
                     html += `<h4>Screenshot:</h4>`;

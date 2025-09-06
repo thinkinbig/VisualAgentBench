@@ -200,24 +200,20 @@ class RewardGuidedAgent(Agent):
                 all_candidates.append(blk)
                 seen_actions.add(action_str)  # Track this action
                 
-                # Stop if we have enough candidates
-                if len(all_candidates) >= target_samples * 2:  # Generate 2x target for selection
+                # Stop if we have enough unique candidates (up to 16)
+                if len(all_candidates) >= 16:  # Keep all unique candidates up to 16
                     break
             
             # Stop if we have enough candidates
-            if len(all_candidates) >= target_samples * 2:
+            if len(all_candidates) >= 16:
                 break
         
         self.logger.info(f"[MULTI_BLOCK] Generated {len(all_candidates)} unique candidates from {num_calls} calls")
         
-        # If we have fewer candidates than target, return what we have
-        if len(all_candidates) <= target_samples:
-            selected_candidates = all_candidates
-        else:
-            # Select best candidates using diversity + quality metrics
-            selected_candidates = CandidateSelector.select_best_candidates(all_candidates, target_samples)
+        # Keep all unique candidates up to 16 (no further filtering needed)
+        selected_candidates = all_candidates
         
-        self.logger.info(f"[MULTI_BLOCK] Selected {len(selected_candidates)} best candidates from {len(all_candidates)} total")
+        self.logger.info(f"[MULTI_BLOCK] Retained {len(selected_candidates)} unique candidates (up to 16 max)")
         
         # Log selected candidates
         for i, candidate in enumerate(selected_candidates):
