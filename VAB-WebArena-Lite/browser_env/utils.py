@@ -1,7 +1,7 @@
 import base64
 from dataclasses import dataclass
 from io import BytesIO
-from typing import Any, Dict, TypedDict, Union, Optional
+from typing import Any, Dict, TypedDict, Union
 
 import numpy as np
 import numpy.typing as npt
@@ -109,47 +109,4 @@ class StateInfo(TypedDict):
     """
     observation: Dict[str, Observation]
     info: Dict[str, Any]
-
-
-@beartype
-def extract_current_url(info: Dict[str, Any], fallback: Optional[str] = None) -> str:
-    """Extract current URL from environment info dictionary.
-    
-    Args:
-        info: Environment info dictionary containing page information
-        fallback: Fallback URL if extraction fails
-        
-    Returns:
-        Current page URL or fallback URL
-    """
-    try:
-        page = info.get("page")
-        if hasattr(page, "url"):
-            return page.url
-    except Exception:
-        pass
-    return fallback or ""
-
-
-@beartype
-def extract_obs_nodes_info(info: Dict[str, Any]) -> Dict[str, Any]:
-    """Extract obs_nodes_info from environment info dictionary.
-    
-    Args:
-        info: Environment info dictionary containing observation metadata
-        
-    Returns:
-        Dictionary containing observation nodes information
-    """
-    try:
-        om = info.get("observation_metadata", {})
-        if isinstance(om.get("obs_nodes_info"), dict):
-            return om.get("obs_nodes_info")
-        if isinstance(om.get("text", {}), dict) and isinstance(om.get("text", {}).get("obs_nodes_info"), dict):
-            return om.get("text", {}).get("obs_nodes_info")
-        if isinstance(om.get("image", {}), dict) and isinstance(om.get("image", {}).get("obs_nodes_info"), dict):
-            return om.get("image", {}).get("obs_nodes_info")
-    except Exception:
-        pass
-    return {}
 

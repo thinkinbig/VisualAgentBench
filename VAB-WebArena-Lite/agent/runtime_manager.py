@@ -43,7 +43,6 @@ from .types import (
     ObservationData,
     TrajRoot,
     TrajNode,
-    TrajEdge,
     NodeStatus,
     TrajectoryTreeStats,
 )
@@ -525,7 +524,7 @@ class RuntimeManager:
         """Get the current trajectory tree."""
         return self._trajectory_tree
 
-    def add_trajectory_node(self, parent_id: str, url: Optional[str] = None, checkpoint: Optional[CheckpointInfo] = None, candidates: Optional[List[BlockInfo]] = None) -> str:
+    def add_trajectory_node(self, parent_id: str, url: Optional[str] = None, checkpoint: Optional[CheckpointInfo] = None, thought: Optional[str] = None, action: Optional[str] = None, meaning: Optional[str] = None) -> str:
         """Add a new trajectory node to the tree."""
         if self._trajectory_tree is None:
             return ""
@@ -533,15 +532,17 @@ class RuntimeManager:
         # Generate unique node ID
         node_id = f"node_{self.get_step()}_{uuid.uuid4().hex[:8]}"
         
-        # Create new node
+        # Create new node with semantic information
         new_node = TrajNode(
             node_id=node_id,
             parent_id=parent_id,
             step=self.get_step(),
             url=url,
+            thought=thought,
+            action=action,
+            meaning=meaning,
             checkpoint=checkpoint,
-            status=NodeStatus.CANDIDATE,  # New nodes start as candidates
-            candidates=candidates or []  # Add candidates if provided
+            status=NodeStatus.CANDIDATE  # New nodes start as candidates
         )
         
         # Add to tree
@@ -549,64 +550,33 @@ class RuntimeManager:
         
         return node_id
 
-    def add_trajectory_edge(self, parent_id: str, child_id: str, thought: str, action: str, meaning: Optional[str] = None) -> None:
-        """Add an edge between two trajectory nodes."""
+    def add_candidate_node(self, parent_id: str, thought: str, action: str, meaning: Optional[str] = None) -> str:
+        """Add a candidate action as a child node."""
         if self._trajectory_tree is None:
-            return
+            return ""
         
-        # Generate unique edge ID
-        edge_id = f"edge_{parent_id}_{child_id}_{uuid.uuid4().hex[:8]}"
+        # Generate unique node ID for candidate
+        node_id = f"candidate_{uuid.uuid4().hex[:8]}"
         
-        # Create new edge
-        new_edge = TrajEdge(
-            edge_id=edge_id,
+        # Create candidate node
+        candidate_node = TrajNode(
+            node_id=node_id,
             parent_id=parent_id,
-            child_id=child_id,
+            step=self.get_step(),
             thought=thought,
             action=action,
-            meaning=meaning or self._describe_action(action)
+            meaning=meaning or self._describe_action(action),
+            status=NodeStatus.CANDIDATE
         )
         
         # Add to tree
-        self._trajectory_tree.add_edge(new_edge)
+        self._trajectory_tree.add_node(candidate_node)
+        
+        # Add to parent's candidate_children list
+        self._trajectory_tree.add_candidate_child(parent_id, node_id)
+        
+        return node_id
 
-    def add_non_winner_candidate_edges(self, candidates: List[BlockInfo], winner: BlockInfo) -> None:
-        """Add all non-winning candidate actions as edges to the trajectory tree."""
-        if not candidates or not winner:
-            return
-            
-        # Get the current node ID (the one we're adding candidates to)
-        current_node_id = self.get_current_node_id()
-        if not current_node_id:
-            return
-            
-        # Add each non-winning candidate as an edge
-        for candidate in candidates:
-            # Skip the winner to avoid duplication
-            if candidate.action == winner.action:
-                continue
-                
-            try:
-                # Generate meaning for the action
-                meaning = self._describe_action(candidate.action)
-                
-                # Create a temporary child node ID for the candidate
-                # We'll use a special prefix to indicate these are candidate edges
-                child_id = f"candidate_{candidate.action.replace(' ', '_').replace('[', '').replace(']', '')}_{len(self._trajectory_tree.edges)}"
-                
-                # Add the edge using the runtime manager's method
-                self.add_trajectory_edge(
-                    parent_id=current_node_id,
-                    child_id=child_id,
-                    thought=candidate.thought,
-                    action=candidate.action,
-                    meaning=meaning
-                )
-                
-                self.logger.info(f"[CANDIDATE_EDGE] Added edge for non-winning candidate: {candidate.action} -> {meaning}")
-                
-            except Exception as e:
-                self.logger.error(f"Failed to add candidate edge for {candidate.action}: {e}")
 
     def select_node(self, node_id: str) -> None:
         """Mark a node as selected (moved from candidate to selected state)."""
@@ -649,24 +619,17 @@ class RuntimeManager:
         # Get current checkpoint
         checkpoint = self.get_checkpoint()
         
-        # Get candidates that were generated for this step
-        candidates = self.get_current_node_candidates()
-        
-        # Add new node
+        # Add new node with action information
         parent_id = self.get_parent_node_id()
+        meaning = self._describe_action(action)
+        
         new_node_id = self.add_trajectory_node(
             parent_id=parent_id,
             url=url,
             checkpoint=checkpoint,
-            candidates=candidates
-        )
-        
-        # Add edge from parent to new node
-        self.add_trajectory_edge(
-            parent_id=parent_id,
-            child_id=new_node_id,
             thought=thought,
-            action=action
+            action=action,
+            meaning=meaning
         )
         
         # Mark new node as selected
@@ -711,7 +674,6 @@ class RuntimeManager:
         if self._trajectory_tree is None:
             return TrajectoryTreeStats(
                 total_nodes=0,
-                total_edges=0,
                 selected_nodes=0,
                 candidate_nodes=0,
                 current_step=self.get_step(),
@@ -721,14 +683,12 @@ class RuntimeManager:
             )
         
         nodes = self._trajectory_tree.nodes
-        edges = self._trajectory_tree.edges
         
         selected_nodes = [n for n in nodes if n.status == NodeStatus.SELECTED]
         candidate_nodes = [n for n in nodes if n.status == NodeStatus.CANDIDATE]
         
         return TrajectoryTreeStats(
             total_nodes=len(nodes),
-            total_edges=len(edges),
             selected_nodes=len(selected_nodes),
             candidate_nodes=len(candidate_nodes),
             current_step=self.get_step(),

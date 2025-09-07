@@ -38,7 +38,7 @@ except Exception:
     AsyncScriptBrowserEnv = None  # type: ignore[assignment]
     ScriptBrowserEnv = None  # type: ignore[assignment]
 from .processors import ObservationMetadata
-from .utils import DetachedPage, StateInfo, extract_current_url, extract_obs_nodes_info
+from .utils import DetachedPage, StateInfo
 from .trajectory import Trajectory
 
 # Backward-compatibility: some code imports create_stop_action
@@ -49,8 +49,6 @@ __all__ = [
     "AsyncScriptBrowserEnv",
     "DetachedPage",
     "StateInfo",
-    "extract_current_url",
-    "extract_obs_nodes_info",
     "ObservationMetadata",
     "Action",
     "ActionTypes",

@@ -18,11 +18,11 @@ from llms.utils import call_llm, build_api_input_for_text
 from .types import (
     PolicyRequest,
     PolicyResponse,
-    ObservationData,
     BlockInfo,
     RewardRequest,
     RewardResponse,
     PairwiseDecision,
+    PairwiseMatch,
 )
 from .parsers import BlockParser, RewardParser, ActionValidator, ObservationParser
 from .sampling import NucleusSampler, CandidateSelector
@@ -87,7 +87,7 @@ class RewardGuidedAgent(Agent):
         # Build policy request with only the essential attributes
         return PolicyRequest(
             intent=self.rt.get_intent() or "",
-            observation=ObservationData.compose_observation_from_nodes(self.rt.get_obs_nodes_info()),
+            observation=self.rt.compose_observation_from_nodes(self.rt.get_obs_nodes_info()),
             current_url=self.rt.get_current_url(),
         )
 
@@ -143,7 +143,7 @@ class RewardGuidedAgent(Agent):
         # Generate multiple diverse blocks per call
         for call_idx in range(num_calls):
             # Use aggressive sampling parameters for diversity
-            temperature, top_p = self.nucleus_sampler.get_sampling_params(call_idx, num_calls)
+            temperature, top_p = self.nucleus_sampler.get_aggressive_sampling_params(call_idx, num_calls)
             
             # Create dynamic LM config for this sampling attempt
             dynamic_config = self.nucleus_sampler.create_dynamic_lm_config(self.policy_lm_config, temperature, top_p)
@@ -200,20 +200,24 @@ class RewardGuidedAgent(Agent):
                 all_candidates.append(blk)
                 seen_actions.add(action_str)  # Track this action
                 
-                # Stop if we have enough unique candidates (up to 16)
-                if len(all_candidates) >= 16:  # Keep all unique candidates up to 16
+                # Stop if we have enough candidates
+                if len(all_candidates) >= target_samples * 2:  # Generate 2x target for selection
                     break
             
             # Stop if we have enough candidates
-            if len(all_candidates) >= 16:
+            if len(all_candidates) >= target_samples * 2:
                 break
         
         self.logger.info(f"[MULTI_BLOCK] Generated {len(all_candidates)} unique candidates from {num_calls} calls")
         
-        # Keep all unique candidates up to 16 (no further filtering needed)
-        selected_candidates = all_candidates
+        # If we have fewer candidates than target, return what we have
+        if len(all_candidates) <= target_samples:
+            selected_candidates = all_candidates
+        else:
+            # Select best candidates using diversity + quality metrics
+            selected_candidates = CandidateSelector.select_best_candidates(all_candidates, target_samples)
         
-        self.logger.info(f"[MULTI_BLOCK] Retained {len(selected_candidates)} unique candidates (up to 16 max)")
+        self.logger.info(f"[MULTI_BLOCK] Selected {len(selected_candidates)} best candidates from {len(all_candidates)} total")
         
         # Log selected candidates
         for i, candidate in enumerate(selected_candidates):
@@ -391,6 +395,7 @@ class RewardGuidedAgent(Agent):
                 
         return current[0]
 
+
     # ---------------------------- Public API ----------------------------
     @beartype
     def next_action(
@@ -421,8 +426,6 @@ class RewardGuidedAgent(Agent):
         except Exception:
             pass
 
-        # Note: We'll add candidate edges after knockout to avoid duplicating the winner
-
         # Log all candidates in a consolidated list (Thought | Action | Meaning)
         try:
             self.logger.info(f"[CANDIDATES_GENERATED] Generated {len(candidates)} candidate actions:")
@@ -440,12 +443,6 @@ class RewardGuidedAgent(Agent):
 
         if not winner:
             raise ValueError("No candidate actions available")
-        
-        # Add all non-winning candidates as edges to the trajectory tree
-        try:
-            self.rt.add_non_winner_candidate_edges(candidates, winner)
-        except Exception:
-            pass
 
         
         # Defer trajectory updates until after environment executes the action

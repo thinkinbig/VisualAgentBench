@@ -4,26 +4,22 @@ import base64
 import mimetypes
 from pathlib import Path
 
-from .types import TrajRoot, TrajNode, TrajEdge, NodeStatus, BlockInfo, CheckpointInfo, ObservationData
+from .types import TrajRoot, TrajNode, NodeStatus, CheckpointInfo, ObservationData
 
 # PDF generation removed - only SVG support
 
 
 class TrajectoryTree:
-    """Complete trajectory tree: one root + multiple nodes/edges."""
+    """Complete trajectory tree: one root + multiple nodes with parent-child relationships."""
     
     def __init__(self, root: TrajRoot):
         self.root = root
         self.nodes: List[TrajNode] = [root]  # Include root in nodes list
-        self.edges: List[TrajEdge] = []
 
     # ---- Runtime convenience methods (no business logic) ----
 
     def add_node(self, node: TrajNode) -> None:
         self.nodes.append(node)
-
-    def add_edge(self, edge: TrajEdge) -> None:
-        self.edges.append(edge)
 
     def get_node(self, node_id: str) -> Optional[TrajNode]:
         for n in self.nodes:
@@ -32,8 +28,8 @@ class TrajectoryTree:
         return None
 
     def children_of(self, node_id: str) -> List[TrajNode]:
-        child_ids = [e.child_id for e in self.edges if e.parent_id == node_id]
-        return [n for n in self.nodes if n.node_id in child_ids]
+        """Get all child nodes of the specified node."""
+        return [n for n in self.nodes if n.parent_id == node_id]
 
     def main_path_nodes(self) -> List[TrajNode]:
         """Return main path nodes sorted by step (including root: step=0)."""
@@ -41,40 +37,29 @@ class TrajectoryTree:
         main_nodes = [n for n in self.nodes if n.status == NodeStatus.SELECTED]
         return sorted(main_nodes, key=lambda n: n.step)
 
-    def main_path_edges(self) -> List[TrajEdge]:
-        """Return main path edges sorted by child.step."""
-        # Main path edges connect selected nodes
-        selected_node_ids = {n.node_id for n in self.nodes if n.status == NodeStatus.SELECTED}
-        step_by_child = {n.node_id: n.step for n in self.nodes}
-        path_edges = [e for e in self.edges if e.child_id in selected_node_ids]
-        return sorted(path_edges, key=lambda e: step_by_child.get(e.child_id, 10**9))
+    def main_path_actions(self) -> List[TrajNode]:
+        """Return main path action nodes sorted by step."""
+        # Main path consists of selected nodes that have actions
+        main_nodes = [n for n in self.nodes if n.status == NodeStatus.SELECTED and n.action is not None]
+        return sorted(main_nodes, key=lambda n: n.step)
 
-    def edges_from(self, node_id: str) -> List[TrajEdge]:
-        """Return all edges from the specified node."""
-        return [e for e in self.edges if e.parent_id == node_id]
-
-    def edges_to(self, node_id: str) -> List[TrajEdge]:
-        """Return all edges to the specified node."""
-        return [e for e in self.edges if e.child_id == node_id]
-
-    def get_candidates_at_node(self, node_id: str) -> List[BlockInfo]:
-        """Get candidate actions list for the specified node."""
+    def get_candidate_children(self, node_id: str) -> List[TrajNode]:
+        """Get candidate child nodes for the specified node."""
         node = self.get_node(node_id)
         if node:
-            return node.candidates
+            return [self.get_node(child_id) for child_id in node.candidate_children if self.get_node(child_id)]
         return []
 
-    def set_candidates_at_node(self, node_id: str, candidates: List[BlockInfo]) -> None:
-        """Set candidate actions list for the specified node."""
-        node = self.get_node(node_id)
-        if node:
-            node.candidates = candidates
+    def add_candidate_child(self, parent_id: str, child_id: str) -> None:
+        """Add a candidate child to the specified parent node."""
+        parent = self.get_node(parent_id)
+        if parent and child_id not in parent.candidate_children:
+            parent.candidate_children.append(child_id)
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary format for serialization."""
         return {
-            "nodes": [node.model_dump() if hasattr(node, 'model_dump') else node.dict() for node in self.nodes],
-            "edges": [edge.model_dump() if hasattr(edge, 'model_dump') else edge.dict() for edge in self.edges]
+            "nodes": [node.model_dump() if hasattr(node, 'model_dump') else node.dict() for node in self.nodes]
         }
 
     def to_json(self) -> str:
@@ -102,10 +87,15 @@ class TrajectoryTree:
                     parent_id=node_data.get("parent_id"),
                     step=node_data["step"],
                     url=node_data.get("url"),
+                    thought=node_data.get("thought"),
+                    action=node_data.get("action"),
+                    meaning=node_data.get("meaning"),
+                    reward=node_data.get("reward"),
                     checkpoint=CheckpointInfo(**node_data["checkpoint"]) if node_data.get("checkpoint") else None,
                     labels=node_data.get("labels", {}),
                     status=NodeStatus(node_data.get("status", "candidate")),
-                    candidates=[BlockInfo(**c) for c in node_data.get("candidates", [])],
+                    notes=node_data.get("notes", {}),
+                    candidate_children=node_data.get("candidate_children", []),
                     run_id=node_data.get("run_id", ""),
                     intent=node_data.get("intent", ""),
                     meta=node_data.get("meta", {})
@@ -117,10 +107,15 @@ class TrajectoryTree:
                     parent_id=node_data.get("parent_id"),
                     step=node_data["step"],
                     url=node_data.get("url"),
+                    thought=node_data.get("thought"),
+                    action=node_data.get("action"),
+                    meaning=node_data.get("meaning"),
+                    reward=node_data.get("reward"),
                     checkpoint=CheckpointInfo(**node_data["checkpoint"]) if node_data.get("checkpoint") else None,
                     labels=node_data.get("labels", {}),
                     status=NodeStatus(node_data.get("status", "candidate")),
-                    candidates=[BlockInfo(**c) for c in node_data.get("candidates", [])]
+                    notes=node_data.get("notes", {}),
+                    candidate_children=node_data.get("candidate_children", [])
                 )
                 nodes.append(node)
         
@@ -133,20 +128,6 @@ class TrajectoryTree:
         # Add non-root nodes
         for node in nodes:
             tree.add_node(node)
-        
-        # Parse edges
-        for edge_data in data.get("edges", []):
-            edge = TrajEdge(
-                edge_id=edge_data["edge_id"],
-                parent_id=edge_data["parent_id"],
-                child_id=edge_data["child_id"],
-                thought=edge_data.get("thought"),
-                action=edge_data.get("action"),
-                meaning=edge_data.get("meaning"),
-                reward=edge_data.get("reward"),
-                notes=edge_data.get("notes", {})
-            )
-            tree.add_edge(edge)
         
         return tree
 
