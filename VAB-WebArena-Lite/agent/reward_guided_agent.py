@@ -187,6 +187,7 @@ class RewardGuidedAgent(Agent):
             # Process each block
             for blk in blocks:
                 action_str = (blk.action or "").strip()
+                
                 # Hard-filter invalid ids/urls
                 if not ActionValidator.is_valid_action(action_str, self.rt.get_obs_nodes_info()):
                     continue
@@ -201,7 +202,7 @@ class RewardGuidedAgent(Agent):
                 seen_actions.add(action_str)  # Track this action
                 
                 # Stop if we have enough candidates
-                if len(all_candidates) >= target_samples * 2:  # Generate 2x target for selection
+                if len(all_candidates) >= target_samples:
                     break
             
             # Stop if we have enough candidates
@@ -440,8 +441,6 @@ class RewardGuidedAgent(Agent):
         if not winner:
             raise ValueError("No candidate actions available")
 
-        
-        # Defer trajectory updates until after environment executes the action
 
         # Log the final winner
         try:

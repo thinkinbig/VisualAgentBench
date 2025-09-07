@@ -30,7 +30,13 @@ except ImportError:
         return fallback or ""
     
     def extract_obs_nodes_info(info: Dict[str, Any]) -> Dict[str, Any]:
-        return {}
+        """Extract obs_nodes_info from environment info."""
+        try:
+            observation_metadata = info.get("observation_metadata", {})
+            text_metadata = observation_metadata.get("text", {})
+            return text_metadata.get("obs_nodes_info", {})
+        except Exception:
+            return {}
 from .types import (
     AgentRuntime,
     Meta,
@@ -140,7 +146,7 @@ class RuntimeManager:
             cp = CheckpointInfo(
                 step=self._runtime.step,
                 url=current_url or "",
-                block=BlockInfo(thought="", action="", meaning=""),
+                block=BlockInfo(thought="", action=""),
                 objective=intent or "",
                 observation={
                     "text": observation_text,
@@ -399,7 +405,7 @@ class RuntimeManager:
         cp = CheckpointInfo(
             step=self._runtime.step,
             url=current_url,
-            block=BlockInfo(thought=thought, action=action_str, meaning=self._describe_action(action_str)),
+            block=BlockInfo(thought=thought, action=action_str),
             objective=self.get_intent() or "",
             observation={
                 "text": observation_text,
@@ -607,7 +613,7 @@ class RuntimeManager:
                     parent_id=state_node_id,
                     thought=candidate.thought or "",
                     action=candidate.action or "",
-                    meaning=candidate.meaning or self._describe_action(candidate.action or "")
+                    meaning=self._describe_action(candidate.action or "")
                 )
                 
                 # Add to state's candidates list
