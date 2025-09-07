@@ -190,7 +190,33 @@ class RuntimeManager:
 
 
     def compose_trajectory_from_meta(self) -> str:
-        """Compose trajectory text from runtime metadata."""
+        """Compose trajectory text from trajectory tree (preferred) or runtime metadata."""
+        # First try to get trajectory from trajectory tree
+        if self._trajectory_tree is not None:
+            try:
+                lines: List[str] = []
+                # Get all state nodes in order
+                state_nodes = self._trajectory_tree.get_state_nodes()
+                state_nodes.sort(key=lambda n: n.step)
+                
+                for state_node in state_nodes:
+                    if state_node.step == 0:
+                        continue  # Skip root node
+                    
+                    # Find the selected candidate for this state
+                    selected_candidate = self._trajectory_tree._get_selected_candidate_for_state(state_node)
+                    if selected_candidate:
+                        thought = selected_candidate.thought or ""
+                        action = selected_candidate.action or ""
+                        if thought and action:
+                            lines.append(f"{{THOUGHT: {thought}, ACTION: {action}}}")
+                
+                if lines:
+                    return "\n".join(lines)
+            except Exception:
+                pass
+        
+        # Fallback to runtime metadata
         m = self.get_meta()
         if not isinstance(m.trajectory, list) or not m.trajectory:
             return ""

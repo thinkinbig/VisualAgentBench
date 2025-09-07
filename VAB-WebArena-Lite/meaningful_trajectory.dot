@@ -1,0 +1,90 @@
+// meaningful_trajectory
+digraph meaningful_trajectory {
+	rankdir=TB
+	node [shape=box style=filled]
+	root [label="ROOT
+Task: Draft an email to the shop owner via their contact us function for a coupon as my refund is suppoed to be replaced by a coupon" URL="/home/zeyuli/Code/VisualAgentBench/VAB-WebArena-Lite/agent/../outputs/screenshots/screenshot_run_step_0.png"]
+	state_1_bf41c773 [label="State 1
+URL: http://localhost:7770..." URL="/home/zeyuli/Code/VisualAgentBench/VAB-WebArena-Lite/agent/../outputs/screenshots/screenshot_run_step_1.png" fillcolor=lightgreen]
+	candidate_1 [label="Candidate 1
+click link 'My Account' (#189)" fillcolor=lightyellow style="filled,dashed"]
+	candidate_2 [label="Candidate 2
+go_back" fillcolor=lightyellow style="filled,dashed"]
+	candidate_3 [label="Candidate 3
+scroll [down]" fillcolor=lightyellow style="filled,dashed"]
+	candidate_4 [label="Candidate 4
+type combobox '\ue615 Search' with 'Contact Us' (#727)" fillcolor=lightyellow style="filled,dashed"]
+	candidate_5 [label="Candidate 5
+press [key_comb] Enter" fillcolor=lightyellow style="filled,dashed"]
+	candidate_6 [label="Candidate 6
+click link 'Advanced Search' (#2212)" fillcolor=lightyellow style="filled,dashed"]
+	candidate_7 [label="Candidate 7
+type main with 'I would like to request a coupon as my refund is supposed to be replaced by it.' (#12)" fillcolor=lightyellow style="filled,dashed"]
+	candidate_8 [label="Candidate 8
+type statictext 'Welcome, Emma Lopez!' with 'emma.lopez@example.com' (#194)" fillcolor=lightyellow style="filled,dashed"]
+	candidate_9 [label="Candidate 9
+click statictext '4' (#403)" fillcolor=lightyellow style="filled,dashed"]
+	candidate_10 [label="Candidate 10
+click statictext 'My Account' (#190)" fillcolor=lightyellow style="filled,dashed"]
+	candidate_11 [label="Candidate 11
+type combobox '\ue615 Search' with ''Contact Us'' (#727)" fillcolor=lightyellow style="filled,dashed"]
+	candidate_12 [label="Candidate 12
+hover statictext 'My Account' (#190)" fillcolor=lightyellow style="filled,dashed"]
+	state_2_5b161889 [label="State 2
+URL: http://localhost:7770..." URL="/home/zeyuli/Code/VisualAgentBench/VAB-WebArena-Lite/agent/../outputs/screenshots/screenshot_run_step_2.png" fillcolor=lightgreen]
+	candidate_1 [label="Candidate 1
+click [189]" fillcolor=lightyellow style="filled,dashed"]
+	candidate_2 [label="Candidate 2
+hover [190]" fillcolor=lightyellow style="filled,dashed"]
+	candidate_3 [label="Candidate 3
+go_back" fillcolor=lightyellow style="filled,dashed"]
+	candidate_4 [label="Candidate 4
+scroll [down]" fillcolor=lightyellow style="filled,dashed"]
+	candidate_5 [label="Candidate 5
+type #727 with ''Contact Us''" fillcolor=lightyellow style="filled,dashed"]
+	candidate_6 [label="Candidate 6
+press [key_comb] Enter" fillcolor=lightyellow style="filled,dashed"]
+	candidate_7 [label="Candidate 7
+click [2212]" fillcolor=lightyellow style="filled,dashed"]
+	candidate_20 [label="Candidate 20
+type #12 with ''Hello, I would like to request a coupon as my refund is supposed to be replaced by a coupon.''" fillcolor=lightyellow style="filled,dashed"]
+	candidate_8 [label="Candidate 8
+click [16]" fillcolor=lightyellow style="filled,dashed"]
+	candidate_9 [label="Candidate 9
+send_msg_to_user [\"Email sent successfully for coupon request.\"]" fillcolor=lightyellow style="filled,dashed"]
+	candidate_10 [label="Candidate 10
+hover [189]" fillcolor=lightyellow style="filled,dashed"]
+	candidate_11 [label="Candidate 11
+type #727 with ''Contact Us'.'" fillcolor=lightyellow style="filled,dashed"]
+	candidate_12 [label="Candidate 12
+type #727 with 'Contact Us'" fillcolor=lightyellow style="filled,dashed"]
+	candidate_26 [label="Candidate 26
+hover [16]" fillcolor=lightyellow style="filled,dashed"]
+	root -> state_1_bf41c773 [label=start style=bold]
+	state_1_bf41c773 -> candidate_1 [label=candidate color=gray style=dashed]
+	state_1_bf41c773 -> candidate_2 [label=candidate color=gray style=dashed]
+	state_1_bf41c773 -> candidate_3 [label=candidate color=gray style=dashed]
+	state_1_bf41c773 -> candidate_4 [label=candidate color=gray style=dashed]
+	state_1_bf41c773 -> candidate_5 [label=candidate color=gray style=dashed]
+	state_1_bf41c773 -> candidate_6 [label=candidate color=gray style=dashed]
+	state_1_bf41c773 -> candidate_7 [label=candidate color=gray style=dashed]
+	state_1_bf41c773 -> candidate_9 [label=candidate color=gray style=dashed]
+	state_1_bf41c773 -> candidate_10 [label=candidate color=gray style=dashed]
+	state_1_bf41c773 -> candidate_11 [label=candidate color=gray style=dashed]
+	state_1_bf41c773 -> candidate_12 [label=candidate color=gray style=dashed]
+	state_1_bf41c773 -> candidate_13 [label=candidate color=gray style=dashed]
+	candidate_8 -> state_2_5b161889 [label=execute color=blue style=bold]
+	candidate_14 -> state_2_5b161889 [label=execute color=blue style=bold]
+	state_2_5b161889 -> candidate_1 [label=candidate color=gray style=dashed]
+	state_2_5b161889 -> candidate_2 [label=candidate color=gray style=dashed]
+	state_2_5b161889 -> candidate_3 [label=candidate color=gray style=dashed]
+	state_2_5b161889 -> candidate_4 [label=candidate color=gray style=dashed]
+	state_2_5b161889 -> candidate_5 [label=candidate color=gray style=dashed]
+	state_2_5b161889 -> candidate_6 [label=candidate color=gray style=dashed]
+	state_2_5b161889 -> candidate_7 [label=candidate color=gray style=dashed]
+	state_2_5b161889 -> candidate_9 [label=candidate color=gray style=dashed]
+	state_2_5b161889 -> candidate_10 [label=candidate color=gray style=dashed]
+	state_2_5b161889 -> candidate_11 [label=candidate color=gray style=dashed]
+	state_2_5b161889 -> candidate_12 [label=candidate color=gray style=dashed]
+	state_2_5b161889 -> candidate_13 [label=candidate color=gray style=dashed]
+}

@@ -242,7 +242,7 @@ class TrajectoryTree:
         G.attr("node", shape="box", style="filled")
         
         # Add root node
-        root_label = f"ROOT\nTask: {self.root.intent or 'Unknown'}\nRun ID: {self.root.run_id}"
+        root_label = f"ROOT\nTask: {self.root.intent or 'Unknown'}"
         if self.root.url:
             root_label += f"\nURL: {self.root.url[:50]}..."
         
@@ -277,7 +277,7 @@ class TrajectoryTree:
         G.attr("node", shape="box", style="filled")
         
         # Add root node
-        root_label = f"ROOT\nTask: {self.root.intent or 'Unknown'}\nRun ID: {self.root.run_id}"
+        root_label = f"ROOT\nTask: {self.root.intent or 'Unknown'}"
         if self.root.url:
             root_label += f"\nURL: {self.root.url[:50]}..."
         
@@ -310,10 +310,6 @@ class TrajectoryTree:
         if node.url:
             label += f"\nURL: {node.url[:50]}..."
         
-        # Add observation info if available
-        if node.observation_hash:
-            label += f"\nHash: {node.observation_hash[:8]}..."
-        
         # Add screenshot if available
         if node.screenshot_path:
             G.node(node.node_id, label, URL=node.screenshot_path, fillcolor="lightgreen")
@@ -334,22 +330,15 @@ class TrajectoryTree:
         candidate_index = self._get_candidate_index(node)
         simple_id = f"candidate_{candidate_index}"
         
-        # Create label with action and meaning
-        label = f"Candidate {candidate_index}\nAction: {node.action or 'Unknown'}"
-        
-        # Add meaning if available
-        if node.meaning:
-            label += f"\nMeaning: {node.meaning}"
+        # Create label with meaningful information
+        if node.meaning and node.meaning.strip():
+            # Use meaning as the primary display text
+            label = f"Candidate {candidate_index}\n{node.meaning}"
         elif node.action:
-            # Try to extract meaning from action
-            meaning = self._extract_action_meaning(node.action)
-            if meaning:
-                label += f"\nMeaning: {meaning}"
-        
-        # Add thought if available (truncated)
-        if node.thought:
-            thought_short = node.thought[:50] + "..." if len(node.thought) > 50 else node.thought
-            label += f"\nThought: {thought_short}"
+            # Fallback to action if no meaningful meaning
+            label = f"Candidate {candidate_index}\nAction: {node.action}"
+        else:
+            label = f"Candidate {candidate_index}\nUnknown action"
         
         G.node(simple_id, label, fillcolor=fillcolor, style=style)
         
@@ -377,12 +366,13 @@ class TrajectoryTree:
                         else:
                             G.edge(node.node_id, candidate_id, label="candidate", style="dashed", color="gray")
                 
-                # Add edge from selected candidate to next state
-                selected_candidate = self._get_selected_candidate_for_state(node)
-                if selected_candidate:
+                # Add edge from selected candidates to next state
+                selected_candidates = self._get_selected_candidates_for_state(node)
+                if selected_candidates:
                     next_state = self._get_next_state(node.step)
                     if next_state:
-                        G.edge(selected_candidate.node_id, next_state.node_id, label="execute", style="bold", color="blue")
+                        for selected_candidate in selected_candidates:
+                            G.edge(selected_candidate.node_id, next_state.node_id, label="execute", style="bold", color="blue")
     
     def _get_first_state(self) -> Optional[TrajState]:
         """Get the first state node (step 1)."""
@@ -398,6 +388,15 @@ class TrajectoryTree:
             if candidate and candidate.is_selected():
                 return candidate
         return None
+    
+    def _get_selected_candidates_for_state(self, state: TrajState) -> List[TrajCandidate]:
+        """Get all selected candidates for a given state."""
+        selected_candidates = []
+        for candidate_id in state.candidates:
+            candidate = self.get_node(candidate_id)
+            if candidate and candidate.is_selected():
+                selected_candidates.append(candidate)
+        return selected_candidates
     
     def _get_next_state(self, current_step: int) -> Optional[TrajState]:
         """Get the next state node after the given step."""
@@ -456,3 +455,11 @@ class TrajectoryTree:
         candidate_node = self.get_node(candidate_node_id)
         if candidate_node and candidate_node.is_candidate():
             candidate_node.status = CandidateNodeStatus.SELECTED
+    
+    def _get_candidate_index(self, node: TrajCandidate) -> int:
+        """Get candidate index for display purposes."""
+        candidates = self.get_candidate_nodes()
+        for i, candidate in enumerate(candidates):
+            if candidate.node_id == node.node_id:
+                return i + 1
+        return 0
