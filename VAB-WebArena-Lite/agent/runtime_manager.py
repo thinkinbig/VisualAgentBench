@@ -136,13 +136,18 @@ class RuntimeManager:
             observation_text = self.compose_observation_from_nodes(obs_nodes)
 
             # Update checkpoint
-            observation_data = self._get_or_create_observation(observation_text, obs_nodes, url=current_url)
+            screenshot_path = self._get_current_screenshot_path()
             cp = CheckpointInfo(
                 step=self._runtime.step,
                 url=current_url or "",
-                block=BlockInfo(thought=None, action=None),
+                block=BlockInfo(thought="", action="", meaning=""),
                 objective=intent or "",
-                observation=observation_data,
+                observation={
+                    "text": observation_text,
+                    "nodes_info": obs_nodes or {},
+                    "url": current_url or "",
+                },
+                screenshot_path=screenshot_path,
             )
             self.set_checkpoint(cp)
 
@@ -255,33 +260,7 @@ class RuntimeManager:
         except Exception:
             pass
         return None
-
-    def _get_or_create_observation(self, observation_text: str, obs_nodes_info: Optional[Dict[str, Any]], screenshot_path: Optional[str] = None, url: Optional[str] = None) -> Any:
-        """get or create observation data, use hash table for deduplication."""
-        # Simplified version - just return a dict
-        return {
-            "text": observation_text,
-            "nodes_info": obs_nodes_info,
-            "screenshot_path": screenshot_path,
-            "url": url
-        }
     
-    def compose_trajectory_from_meta(self) -> str:
-        """Compose trajectory text from trajectory tree."""
-        if self._trajectory_tree is None:
-            return ""
-        
-        # Get selected actions from trajectory tree
-        selected_nodes = self._trajectory_tree.get_selected_nodes()
-        if not selected_nodes:
-            return ""
-        
-        lines = []
-        for node in selected_nodes:
-            if node.thought and node.action:
-                lines.append(f"{{THOUGHT: {node.thought}, ACTION: {node.action}}}")
-        
-        return "\n".join(lines)
 
     def _describe_action(self, action_str: str) -> str:
         """Human-readable action meaning by looking up AXTREE id label from current observation."""
@@ -301,8 +280,13 @@ class RuntimeManager:
             # Get nodes info from current checkpoint observation or runtime meta
             nodes = None
             checkpoint = self.get_checkpoint()
-            if checkpoint and checkpoint.observation and checkpoint.observation.nodes_info:
-                nodes = checkpoint.observation.nodes_info
+            if (
+                checkpoint
+                and checkpoint.observation
+                and isinstance(checkpoint.observation, dict)
+                and checkpoint.observation.get("nodes_info")
+            ):
+                nodes = checkpoint.observation.get("nodes_info")
             else:
                 # Fallback to runtime meta obs_nodes_info
                 nodes = self.get_obs_nodes_info()
@@ -412,13 +396,17 @@ class RuntimeManager:
             except Exception:
                 pass
 
-        observation_data = self._get_or_create_observation(observation_text, obs_nodes, screenshot_path, current_url)
         cp = CheckpointInfo(
             step=self._runtime.step,
             url=current_url,
-            block=BlockInfo(thought=thought, action=action_str),
+            block=BlockInfo(thought=thought, action=action_str, meaning=self._describe_action(action_str)),
             objective=self.get_intent() or "",
-            observation=observation_data,
+            observation={
+                "text": observation_text,
+                "nodes_info": obs_nodes or {},
+                "url": current_url or "",
+            },
+            screenshot_path=screenshot_path,
         )
         self.set_checkpoint(cp)
 
@@ -588,7 +576,7 @@ class RuntimeManager:
         checkpoint = self.get_checkpoint()
         observation_hash = None
         obs_nodes_info = None
-        if checkpoint and checkpoint.observation:
+        if checkpoint and checkpoint.observation and isinstance(checkpoint.observation, dict):
             obs_nodes_info = checkpoint.observation.get("nodes_info")
             # Generate simple hash from observation text
             obs_text = checkpoint.observation.get("text", "")

@@ -22,7 +22,7 @@ class CheckpointInfo(BaseModel):
         description="The full BLOCK (thought + action) that was executed last turn.",
     )
     objective: str = Field(description="Echo of the task's OBJECTIVE. Do not rewrite or expand.")
-    observation: str = Field(description="AXTREE text of the current page. Include bids and labels.")
+    observation: Dict[str, Any] = Field(description="Structured observation with keys: text, nodes_info, url.")
     screenshot_path: Optional[str] = Field(None, description="Path to the screenshot image for this checkpoint.")
 
 class BlockInfo(BaseModel):
