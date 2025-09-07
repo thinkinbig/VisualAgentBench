@@ -4,10 +4,52 @@ import base64
 import mimetypes
 from pathlib import Path
 
-from .types import TrajRoot, TrajNode, NodeStatus, CheckpointInfo, ObservationData
+from pydantic import BaseModel, Field
+from enum import Enum
 
-# PDF generation removed - only SVG support
 
+class NodeStatus(str, Enum):
+    CANDIDATE = "candidate"
+    SELECTED = "selected"
+
+
+class TrajNode(BaseModel):
+    """普通节点：代表到达后的浏览器状态（URL/指纹/可选 checkpoint）。"""
+    node_id: str = Field(..., description="Unique id within the trajectory tree")
+    parent_id: Optional[str] = Field(None, description="Parent node id; None for root")
+    step: int = Field(..., description="1-based step index along the EXECUTED main path (root=0)")
+    url: Optional[str] = Field(None, description="Current page URL at this node")
+    observation_hash: Optional[str] = Field(None, description="Fingerprint of AXTREE/screenshot for dedup/debug")
+    screenshot_path: Optional[str] = Field(None, description="Filesystem path to the screenshot image for this node")
+    obs_nodes_info: Optional[Dict[str, Any]] = Field(
+        None,
+        description="AXTREE/SoM nodes mapping (ids -> bounds/centers/text) for clickable overlays",
+    )
+    labels: Dict[str, Any] = Field(default_factory=dict, description="Arbitrary tags for filtering/searching")
+    status: NodeStatus = Field(default=NodeStatus.CANDIDATE, description="Current status of this node")
+    
+    # Action information stored directly in the node
+    thought: Optional[str] = Field(None, description="Why this action was chosen")
+    action: Optional[str] = Field(None, description="Raw action string: e.g., 'click [577]' or 'goto [http://…]'")
+    meaning: Optional[str] = Field(None, description="Human-readable action meaning")
+    
+    # Tree structure: candidates are now child node IDs
+    candidates: List[str] = Field(default_factory=list, description="Child node IDs representing candidate actions")
+    
+    def is_root(self) -> bool:
+        """Check if this is the root node."""
+        return self.parent_id is None
+
+
+class TrajRoot(TrajNode):
+    """根节点：包含任务意图和元数据。"""
+    run_id: str = Field(default="", description="Unique run identifier")
+    intent: str = Field(default="", description="Task intent/objective")
+    meta: Dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
+    
+    def is_root(self) -> bool:
+        """Root node is always root."""
+        return True
 
 class TrajectoryTree:
     """Complete trajectory tree: one root + multiple nodes with parent-child relationships."""
@@ -47,14 +89,24 @@ class TrajectoryTree:
         """Get candidate child nodes for the specified node."""
         node = self.get_node(node_id)
         if node:
-            return [self.get_node(child_id) for child_id in node.candidate_children if self.get_node(child_id)]
+            return [self.get_node(child_id) for child_id in node.candidates if self.get_node(child_id)]
         return []
 
     def add_candidate_child(self, parent_id: str, child_id: str) -> None:
         """Add a candidate child to the specified parent node."""
         parent = self.get_node(parent_id)
-        if parent and child_id not in parent.candidate_children:
-            parent.candidate_children.append(child_id)
+        if parent and child_id not in parent.candidates:
+            parent.candidates.append(child_id)
+    
+    def get_candidates_at_node(self, node_id: str) -> List[Any]:
+        """Get candidate actions at a specific node."""
+        # This is a placeholder - you may need to implement based on your data structure
+        return []
+    
+    def main_path_edges(self) -> List[Any]:
+        """Get main path edges."""
+        # This is a placeholder - you may need to implement based on your data structure
+        return []
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary format for serialization."""
@@ -91,11 +143,11 @@ class TrajectoryTree:
                     action=node_data.get("action"),
                     meaning=node_data.get("meaning"),
                     reward=node_data.get("reward"),
-                    checkpoint=CheckpointInfo(**node_data["checkpoint"]) if node_data.get("checkpoint") else None,
+                    checkpoint=None,
                     labels=node_data.get("labels", {}),
                     status=NodeStatus(node_data.get("status", "candidate")),
                     notes=node_data.get("notes", {}),
-                    candidate_children=node_data.get("candidate_children", []),
+                    candidates=node_data.get("candidates", []),
                     run_id=node_data.get("run_id", ""),
                     intent=node_data.get("intent", ""),
                     meta=node_data.get("meta", {})
@@ -111,7 +163,7 @@ class TrajectoryTree:
                     action=node_data.get("action"),
                     meaning=node_data.get("meaning"),
                     reward=node_data.get("reward"),
-                    checkpoint=CheckpointInfo(**node_data["checkpoint"]) if node_data.get("checkpoint") else None,
+                    checkpoint=None,
                     labels=node_data.get("labels", {}),
                     status=NodeStatus(node_data.get("status", "candidate")),
                     notes=node_data.get("notes", {}),
@@ -187,8 +239,8 @@ class TrajectoryTree:
             screenshot_path = None
             mime = None
 
-            if node.checkpoint and node.checkpoint.observation:
-                screenshot_path = node.checkpoint.observation.screenshot_path  # 先原样记录
+            if node.screenshot_path:
+                screenshot_path = node.screenshot_path  # 先原样记录
                 if screenshot_path:
                     mime, _ = mimetypes.guess_type(screenshot_path)
                     mime = mime or "image/png"
@@ -216,8 +268,8 @@ class TrajectoryTree:
             # Create action nodes for each candidate
             candidates = self.get_candidates_at_node(node.node_id)
             selected_action = None
-            if node.checkpoint and node.checkpoint.block and node.checkpoint.block.action:
-                selected_action = node.checkpoint.block.action
+            if node.action:
+                selected_action = node.action
             
             # If there are candidates, create action nodes for each
             if candidates:
@@ -277,7 +329,7 @@ class TrajectoryTree:
                         "url": None,
                         "screenshot": None,
                         "status": "selected",
-                        "thought": node.checkpoint.block.thought if node.checkpoint and node.checkpoint.block else "",
+                        "thought": node.thought or "",
                         "action": selected_action
                     })
                     
@@ -313,7 +365,7 @@ class TrajectoryTree:
                         "url": None,
                         "screenshot": None,
                         "status": "selected",
-                        "thought": node.checkpoint.block.thought if node.checkpoint and node.checkpoint.block else "",
+                        "thought": node.thought or "",
                         "action": selected_action
                     })
                     

@@ -41,9 +41,6 @@ from .types import (
     AggregateInfo,
     CheckpointInfo,
     ObservationData,
-    TrajRoot,
-    TrajNode,
-    NodeStatus,
     TrajectoryTreeStats,
 )
 
@@ -498,160 +495,58 @@ class RuntimeManager:
     
     def initialize_trajectory_tree(self, intent: str, run_id: Optional[str] = None) -> None:
         """Initialize the trajectory tree with root node."""
-        if self._trajectory_tree is not None:
-            return  # Already initialized
-        
-        if run_id is None:
-            run_id = str(uuid.uuid4())[:8]
-        
-        # Create root node
-        root = TrajRoot(
-            node_id="root",
-            step=0,
-            run_id=run_id,
-            intent=intent,
-            status=NodeStatus.SELECTED  # Root is always selected
-        )
-        
-        # Import TrajectoryTree here to avoid circular imports
-        from .trajectory_tree import TrajectoryTree
-        self._trajectory_tree = TrajectoryTree(root)
-        
-        # Update runtime with trajectory tree
-        self._runtime.trajectory_tree = self._trajectory_tree
+        # Trajectory tree is now managed externally
+        pass
 
-    def get_trajectory_tree(self) -> Optional[TrajectoryTree]:
+    def get_trajectory_tree(self) -> Optional[Any]:
         """Get the current trajectory tree."""
         return self._trajectory_tree
 
     def add_trajectory_node(self, parent_id: str, url: Optional[str] = None, checkpoint: Optional[CheckpointInfo] = None, thought: Optional[str] = None, action: Optional[str] = None, meaning: Optional[str] = None) -> str:
         """Add a new trajectory node to the tree."""
-        if self._trajectory_tree is None:
-            return ""
-        
-        # Generate unique node ID
-        node_id = f"node_{self.get_step()}_{uuid.uuid4().hex[:8]}"
-        
-        # Create new node with semantic information
-        new_node = TrajNode(
-            node_id=node_id,
-            parent_id=parent_id,
-            step=self.get_step(),
-            url=url,
-            thought=thought,
-            action=action,
-            meaning=meaning,
-            checkpoint=checkpoint,
-            status=NodeStatus.CANDIDATE  # New nodes start as candidates
-        )
-        
-        # Add to tree
-        self._trajectory_tree.add_node(new_node)
-        
-        return node_id
+        # Trajectory tree is now managed externally
+        return ""
 
     def add_candidate_node(self, parent_id: str, thought: str, action: str, meaning: Optional[str] = None) -> str:
         """Add a candidate action as a child node."""
-        if self._trajectory_tree is None:
-            return ""
-        
-        # Generate unique node ID for candidate
-        node_id = f"candidate_{uuid.uuid4().hex[:8]}"
-        
-        # Create candidate node
-        candidate_node = TrajNode(
-            node_id=node_id,
-            parent_id=parent_id,
-            step=self.get_step(),
-            thought=thought,
-            action=action,
-            meaning=meaning or self._describe_action(action),
-            status=NodeStatus.CANDIDATE
-        )
-        
-        # Add to tree
-        self._trajectory_tree.add_node(candidate_node)
-        
-        # Add to parent's candidate_children list
-        self._trajectory_tree.add_candidate_child(parent_id, node_id)
-        
-        return node_id
+        # Trajectory tree is now managed externally
+        return ""
 
 
     def select_node(self, node_id: str) -> None:
         """Mark a node as selected (moved from candidate to selected state)."""
-        if self._trajectory_tree is None:
-            return
-        node = self._trajectory_tree.get_node(node_id)
-        if node:
-            node.status = NodeStatus.SELECTED
+        # Trajectory tree is now managed externally
+        pass
 
     def get_current_node_id(self) -> Optional[str]:
         """Get the current active node ID (the most recently added node)."""
-        if self._trajectory_tree is None:
-            return None
-        
-        # Find the most recent node by step
-        current_step = self.get_step()
-        for node in self._trajectory_tree.nodes:
-            if node.step == current_step and not node.is_root():
-                return node.node_id
+        # Trajectory tree is now managed externally
         return None
 
     def get_parent_node_id(self) -> Optional[str]:
         """Get the parent node ID for the current step."""
-        if self._trajectory_tree is None:
-            return None
-        
-        # Find the most recent selected node
-        selected_nodes = [n for n in self._trajectory_tree.nodes if n.status == NodeStatus.SELECTED]
-        if not selected_nodes:
-            return "root"  # Default to root if no selected nodes
-        
-        # Return the most recent selected node
-        return max(selected_nodes, key=lambda n: n.step).node_id
+        # Trajectory tree is now managed externally
+        return "root"
 
     def update_trajectory_tree_after_action(self, thought: str, action: str, url: Optional[str] = None) -> None:
         """Update trajectory tree after executing an action."""
-        if self._trajectory_tree is None:
-            return
-        
-        # Get current checkpoint
-        checkpoint = self.get_checkpoint()
-        
-        # Add new node with action information
-        parent_id = self.get_parent_node_id()
-        meaning = self._describe_action(action)
-        
-        new_node_id = self.add_trajectory_node(
-            parent_id=parent_id,
-            url=url,
-            checkpoint=checkpoint,
-            thought=thought,
-            action=action,
-            meaning=meaning
-        )
-        
-        # Mark new node as selected
-        self.select_node(new_node_id)
+        # Trajectory tree is now managed externally
+        pass
 
     def export_trajectory_tree_html(self, output_path: Optional[str] = None) -> str:
         """Export trajectory tree as interactive HTML."""
-        if self._trajectory_tree is None:
-            return ""
-        return self._trajectory_tree.to_interactive_html(output_path)
+        # Trajectory tree is now managed externally
+        return ""
 
     def export_trajectory_tree_graphviz(self) -> str:
         """Export trajectory tree as Graphviz DOT format."""
-        if self._trajectory_tree is None:
-            return ""
-        return self._trajectory_tree.to_graphviz()
+        # Trajectory tree is now managed externally
+        return ""
 
     def export_trajectory_tree_json(self) -> str:
         """Export trajectory tree as JSON."""
-        if self._trajectory_tree is None:
-            return "{}"
-        return self._trajectory_tree.to_json()
+        # Trajectory tree is now managed externally
+        return "{}"
 
     def record_candidates(self, candidates: List[BlockInfo]) -> None:
         """Record candidate actions for the current step (will be added to node after action execution)."""
@@ -671,29 +566,13 @@ class RuntimeManager:
 
     def get_trajectory_tree_stats(self) -> TrajectoryTreeStats:
         """Get statistics about the trajectory tree."""
-        if self._trajectory_tree is None:
-            return TrajectoryTreeStats(
-                total_nodes=0,
-                selected_nodes=0,
-                candidate_nodes=0,
-                current_step=self.get_step(),
-                tree_depth=0,
-                has_root=False,
-                error="Trajectory tree not initialized"
-            )
-        
-        nodes = self._trajectory_tree.nodes
-        
-        selected_nodes = [n for n in nodes if n.status == NodeStatus.SELECTED]
-        candidate_nodes = [n for n in nodes if n.status == NodeStatus.CANDIDATE]
-        
+        # Trajectory tree is now managed externally
         return TrajectoryTreeStats(
-            total_nodes=len(nodes),
-            selected_nodes=len(selected_nodes),
-            candidate_nodes=len(candidate_nodes),
-            current_step=self.get_step(),
-            tree_depth=max((n.step for n in nodes), default=0),
-            has_root=any(n.is_root() for n in nodes)
+            total_nodes=0,
+            main_path_length=0,
+            candidate_nodes=0,
+            selected_nodes=0,
+            total_candidates=0
         )
 
 
