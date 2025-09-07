@@ -5,11 +5,12 @@ from typing import Any, Dict, List, Optional, TYPE_CHECKING
 from pydantic import BaseModel, Field, validator
 from enum import Enum
 import re
-from .trajectory_tree import TrajectoryTree
 if TYPE_CHECKING:
     from browser_env.trajectory import Trajectory
+    from .trajectory_tree import TrajectoryTree
 else:
     Trajectory = list  # type: ignore[assignment]
+    TrajectoryTree = Any  # type: ignore[assignment]
 
 
 class CheckpointInfo(BaseModel):

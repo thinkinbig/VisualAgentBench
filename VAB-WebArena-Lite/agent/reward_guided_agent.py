@@ -143,7 +143,7 @@ class RewardGuidedAgent(Agent):
         # Generate multiple diverse blocks per call
         for call_idx in range(num_calls):
             # Use aggressive sampling parameters for diversity
-            temperature, top_p = self.nucleus_sampler.get_aggressive_sampling_params(call_idx, num_calls)
+            temperature, top_p = self.nucleus_sampler.get_sampling_params(call_idx, num_calls)
             
             # Create dynamic LM config for this sampling attempt
             dynamic_config = self.nucleus_sampler.create_dynamic_lm_config(self.policy_lm_config, temperature, top_p)

@@ -2,54 +2,108 @@ from typing import List, Optional, Dict, Any
 import json
 import base64
 import mimetypes
+import textwrap
 from pathlib import Path
-
+from abc import abstractmethod
 from pydantic import BaseModel, Field
 from enum import Enum
 
 
-class NodeStatus(str, Enum):
+class CandidateNodeStatus(str, Enum):
     CANDIDATE = "candidate"
     SELECTED = "selected"
 
 
 class TrajNode(BaseModel):
-    """普通节点：代表到达后的浏览器状态（URL/指纹/可选 checkpoint）。"""
+    """基础节点：包含所有节点的通用字段。"""
     node_id: str = Field(..., description="Unique id within the trajectory tree")
     parent_id: Optional[str] = Field(None, description="Parent node id; None for root")
-    step: int = Field(..., description="1-based step index along the EXECUTED main path (root=0)")
     url: Optional[str] = Field(None, description="Current page URL at this node")
-    observation_hash: Optional[str] = Field(None, description="Fingerprint of AXTREE/screenshot for dedup/debug")
-    screenshot_path: Optional[str] = Field(None, description="Filesystem path to the screenshot image for this node")
-    obs_nodes_info: Optional[Dict[str, Any]] = Field(
-        None,
-        description="AXTREE/SoM nodes mapping (ids -> bounds/centers/text) for clickable overlays",
-    )
-    labels: Dict[str, Any] = Field(default_factory=dict, description="Arbitrary tags for filtering/searching")
-    status: NodeStatus = Field(default=NodeStatus.CANDIDATE, description="Current status of this node")
-    
-    # Action information stored directly in the node
-    thought: Optional[str] = Field(None, description="Why this action was chosen")
-    action: Optional[str] = Field(None, description="Raw action string: e.g., 'click [577]' or 'goto [http://…]'")
-    meaning: Optional[str] = Field(None, description="Human-readable action meaning")
-    
-    # Tree structure: candidates are now child node IDs
-    candidates: List[str] = Field(default_factory=list, description="Child node IDs representing candidate actions")
     
     def is_root(self) -> bool:
         """Check if this is the root node."""
         return self.parent_id is None
+    
+    @abstractmethod
+    def is_state(self) -> bool:
+        """Check if this is a state node."""
+        pass
+    
+    @abstractmethod
+    def is_candidate(self) -> bool:
+        """Check if this is a candidate node."""
+        pass
+
+    @abstractmethod
+    def is_selected(self) -> bool:
+        """Check if this is a selected node."""
+        pass
+
+class TrajState(TrajNode):
+    """状态节点：代表执行动作后的浏览器状态。"""
+    step: int = Field(..., description="1-based step index along the EXECUTED main path (root=0)")
+    observation_hash: Optional[str] = Field(None, description="Fingerprint of AXTREE/screenshot for dedup/debug")
+    obs_nodes_info: Optional[Dict[str, Any]] = Field(
+        None,
+        description="AXTREE/SoM nodes mapping (ids -> bounds/centers/text) for clickable overlays",
+    )
+    screenshot_path: Optional[str] = Field(None, description="Filesystem path to the screenshot image for this state")
+    candidates: List[str] = Field(default_factory=list, description="Child node IDs representing candidate actions")
+
+    def is_state(self) -> bool:
+        """State node is always a state."""
+        return True
+
+    def is_candidate(self) -> bool:
+        """State node is never a candidate."""
+        return False
+
+    def is_selected(self) -> bool:
+        """State node is never a selected node."""
+        return False
+
+class TrajCandidate(TrajNode):
+    """候选节点：代表可选的候选动作。"""
+    # Action information stored directly in the node
+    thought: Optional[str] = Field(None, description="Why this action was chosen")
+    action: Optional[str] = Field(None, description="Raw action string: e.g., 'click [577]' or 'goto [http://…]'")
+    meaning: Optional[str] = Field(None, description="Human-readable action meaning")
+    status: CandidateNodeStatus = Field(default=CandidateNodeStatus.CANDIDATE, description="Current status of this candidate")
+    
+    def is_state(self) -> bool:
+        """State node is never a state."""
+        return False
+
+    def is_candidate(self) -> bool:
+        """Candidate node is always a candidate."""
+        return self.status == CandidateNodeStatus.CANDIDATE
+
+
+    def is_selected(self) -> bool:
+        """Candidate node is always a candidate."""
+        return self.status == CandidateNodeStatus.SELECTED
 
 
 class TrajRoot(TrajNode):
     """根节点：包含任务意图和元数据。"""
+    step: int = Field(default=0, description="Root node step (always 0)")
     run_id: str = Field(default="", description="Unique run identifier")
     intent: str = Field(default="", description="Task intent/objective")
     meta: Dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
-    
-    def is_root(self) -> bool:
-        """Root node is always root."""
-        return True
+    screenshot_path: Optional[str] = Field(None, description="Filesystem path to the screenshot image for the root state")
+
+
+    def is_state(self) -> bool:
+        """Root node is never a state."""
+        return False
+
+    def is_candidate(self) -> bool:
+        """Root node is never a candidate."""
+        return False
+
+    def is_selected(self) -> bool:
+        """Root node is never a selected node."""
+        return False
 
 class TrajectoryTree:
     """Complete trajectory tree: one root + multiple nodes with parent-child relationships."""
@@ -57,119 +111,71 @@ class TrajectoryTree:
     def __init__(self, root: TrajRoot):
         self.root = root
         self.nodes: List[TrajNode] = [root]  # Include root in nodes list
-
-    # ---- Runtime convenience methods (no business logic) ----
-
-    def add_node(self, node: TrajNode) -> None:
-        self.nodes.append(node)
-
-    def get_node(self, node_id: str) -> Optional[TrajNode]:
-        for n in self.nodes:
-            if n.node_id == node_id:
-                return n
-        return None
-
-    def children_of(self, node_id: str) -> List[TrajNode]:
-        """Get all child nodes of the specified node."""
-        return [n for n in self.nodes if n.parent_id == node_id]
-
-    def main_path_nodes(self) -> List[TrajNode]:
-        """Return main path nodes sorted by step (including root: step=0)."""
-        # Main path consists of selected nodes
-        main_nodes = [n for n in self.nodes if n.status == NodeStatus.SELECTED]
-        return sorted(main_nodes, key=lambda n: n.step)
-
-    def main_path_actions(self) -> List[TrajNode]:
-        """Return main path action nodes sorted by step."""
-        # Main path consists of selected nodes that have actions
-        main_nodes = [n for n in self.nodes if n.status == NodeStatus.SELECTED and n.action is not None]
-        return sorted(main_nodes, key=lambda n: n.step)
-
-    def get_candidate_children(self, node_id: str) -> List[TrajNode]:
-        """Get candidate child nodes for the specified node."""
-        node = self.get_node(node_id)
-        if node:
-            return [self.get_node(child_id) for child_id in node.candidates if self.get_node(child_id)]
-        return []
-
-    def add_candidate_child(self, parent_id: str, child_id: str) -> None:
-        """Add a candidate child to the specified parent node."""
-        parent = self.get_node(parent_id)
-        if parent and child_id not in parent.candidates:
-            parent.candidates.append(child_id)
     
-    def get_candidates_at_node(self, node_id: str) -> List[Any]:
-        """Get candidate actions at a specific node."""
-        # This is a placeholder - you may need to implement based on your data structure
-        return []
-    
-    def main_path_edges(self) -> List[Any]:
-        """Get main path edges."""
-        # This is a placeholder - you may need to implement based on your data structure
-        return []
-
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary format for serialization."""
         return {
-            "nodes": [node.model_dump() if hasattr(node, 'model_dump') else node.dict() for node in self.nodes]
+            "nodes": [node.model_dump() for node in self.nodes]
         }
-
+    
     def to_json(self) -> str:
         """Convert to JSON string."""
         return json.dumps(self.to_dict(), indent=2, ensure_ascii=False)
-
+    
     @classmethod
     def from_json(cls, json_str: str) -> "TrajectoryTree":
         """Create TrajectoryTree from JSON string."""
         data = json.loads(json_str)
         return cls.from_dict(data)
-
+    
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "TrajectoryTree":
         """Create TrajectoryTree from dictionary data."""
-        # Parse nodes
         nodes = []
         root = None
         
         for node_data in data.get("nodes", []):
+            # Determine node type based on available fields
             if node_data.get("parent_id") is None:
                 # This is the root node
                 root = TrajRoot(
                     node_id=node_data["node_id"],
                     parent_id=node_data.get("parent_id"),
-                    step=node_data["step"],
+                    step=node_data.get("step", 0),
+                    url=node_data.get("url"),
+                    run_id=node_data.get("run_id", ""),
+                    intent=node_data.get("intent", ""),
+                    meta=node_data.get("meta", {}),
+                    screenshot_path=node_data.get("screenshot_path")
+                )
+            elif "action" in node_data and node_data["action"] is not None:
+                # This is a candidate node
+                node = TrajCandidate(
+                    node_id=node_data["node_id"],
+                    parent_id=node_data.get("parent_id"),
                     url=node_data.get("url"),
                     thought=node_data.get("thought"),
                     action=node_data.get("action"),
                     meaning=node_data.get("meaning"),
-                    reward=node_data.get("reward"),
-                    checkpoint=None,
-                    labels=node_data.get("labels", {}),
-                    status=NodeStatus(node_data.get("status", "candidate")),
-                    notes=node_data.get("notes", {}),
-                    candidates=node_data.get("candidates", []),
-                    run_id=node_data.get("run_id", ""),
-                    intent=node_data.get("intent", ""),
-                    meta=node_data.get("meta", {})
+                    status=CandidateNodeStatus(node_data.get("status", "candidate"))
                 )
-            else:
-                # This is a regular node
-                node = TrajNode(
+                nodes.append(node)
+            elif "step" in node_data:
+                # This is a state node (has step field)
+                node = TrajState(
                     node_id=node_data["node_id"],
                     parent_id=node_data.get("parent_id"),
                     step=node_data["step"],
                     url=node_data.get("url"),
-                    thought=node_data.get("thought"),
-                    action=node_data.get("action"),
-                    meaning=node_data.get("meaning"),
-                    reward=node_data.get("reward"),
-                    checkpoint=None,
-                    labels=node_data.get("labels", {}),
-                    status=NodeStatus(node_data.get("status", "candidate")),
-                    notes=node_data.get("notes", {}),
-                    candidate_children=node_data.get("candidate_children", [])
+                    observation_hash=node_data.get("observation_hash"),
+                    obs_nodes_info=node_data.get("obs_nodes_info"),
+                    screenshot_path=node_data.get("screenshot_path"),
+                    candidates=node_data.get("candidates", [])
                 )
                 nodes.append(node)
+            else:
+                # Fallback: try to create a basic node
+                raise ValueError(f"Unknown node type for node_id: {node_data.get('node_id', 'unknown')}")
         
         if root is None:
             raise ValueError("No root node found in JSON data")
@@ -179,578 +185,274 @@ class TrajectoryTree:
         
         # Add non-root nodes
         for node in nodes:
-            tree.add_node(node)
+            tree.nodes.append(node)
         
         return tree
-
-    def to_graphviz(self) -> str:
-        """Generate Graphviz DOT format trajectory graph."""
-        lines = ["digraph Trajectory {", "  rankdir=TB;", "  node [shape=box, style=filled];"]
-        
-        # Add node definitions
-        lines.extend(self._generate_graphviz_nodes())
-        
-        # Add edge definitions
-        lines.extend(self._generate_graphviz_edges())
-        
-        lines.append("}")
-        return "\n".join(lines)
-
-    def to_svg(self, output_path: str = None) -> str:
-        """Generate SVG trajectory graph, all actions as nodes distinguished by status."""
-        
-        # Convert tree structure to visualization data
-        nodes_data, edges_data = self._build_visualization_data()
-        
-        # Generate SVG content
-        svg_content = self._generate_svg_template(nodes_data, edges_data)
-        
-        # Save SVG file
-        if output_path:
-            with open(output_path, 'w', encoding='utf-8') as f:
-                f.write(svg_content)
-        
-        return svg_content
-
-    def _build_visualization_data(self) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
-        """Build visualization data from the tree structure."""
-        nodes_data = []
-        edges_data = []
-        
-        # Add root node first
-        nodes_data.append({
-            "id": "root",
-            "label": f"Root\n{self.root.intent or 'Task'}",
-            "type": "root",
-            "step": 0,
-            "url": None,
-            "screenshot": None,
-            "status": "root"
-        })
-        
-        # Process each non-root node in the tree
-        state_index = 0
-        for i, node in enumerate(self.nodes):
-            if node.is_root():
-                continue
-            
-            # Handle screenshots
-            screenshot_data = None
-            screenshot_path = None
-            mime = None
-
-            if node.screenshot_path:
-                screenshot_path = node.screenshot_path  # 先原样记录
-                if screenshot_path:
-                    mime, _ = mimetypes.guess_type(screenshot_path)
-                    mime = mime or "image/png"
-                    try:
-                        with open(screenshot_path, "rb") as f:
-                            img_data = f.read()
-                            screenshot_data = base64.b64encode(img_data).decode("ascii")
-                    except Exception:
-                        screenshot_data = None  # 读不到就走回退
-            
-            # Add state node (representing reaching a certain state)
-            state_node_id = f"state_{state_index}"
-            nodes_data.append({
-                "id": state_node_id,
-                "label": f"Step {node.step}",
-                "type": "state",
-                "step": node.step,
-                "url": node.url,
-                "screenshot": screenshot_data,
-                "screenshot_path": screenshot_path,  # 总是有（如果传入了）
-                "mime": mime or "image/png",
-                "status": "state"
-            })
-            
-            # Create action nodes for each candidate
-            candidates = self.get_candidates_at_node(node.node_id)
-            selected_action = None
-            if node.action:
-                selected_action = node.action
-            
-            # If there are candidates, create action nodes for each
-            if candidates:
-                selected_candidate_found = False
-                for j, candidate in enumerate(candidates):
-                    action_node_id = f"action_{state_index}_{j}"
-                    action_short = candidate.action[:40] + "..." if len(candidate.action) > 40 else candidate.action
-                    
-                    # Determine action status
-                    status = "candidate"  # Default to candidate
-                    if selected_action and candidate.action == selected_action:
-                        status = "selected"  # Selected
-                        selected_candidate_found = True
-                    
-                    nodes_data.append({
-                        "id": action_node_id,
-                        "label": action_short,
-                        "type": "action",
-                        "step": node.step,
-                        "url": None,
-                        "screenshot": None,
-                        "status": status,
-                        "thought": candidate.thought,
-                        "action": candidate.action
-                    })
-                    
-                    # Add edge from state node to action node
-                    edges_data.append({
-                        "from": state_node_id,
-                        "to": action_node_id,
-                        "label": "",
-                        "type": "action_edge",
-                        "status": status
-                    })
-                    
-                    # Only selected actions connect to next state (if there is one)
-                    if status == "selected" and state_index + 1 < len([n for n in self.nodes if not n.is_root()]):
-                        next_state_id = f"state_{state_index + 1}"
-                        edges_data.append({
-                            "from": action_node_id,
-                            "to": next_state_id,
-                            "label": "",
-                            "type": "execution_edge",
-                            "status": "executed"
-                        })
-                
-                # If selected action is not in candidates, add it as a separate selected action node
-                if selected_action and not selected_candidate_found:
-                    action_node_id = f"action_{state_index}_selected"
-                    action_short = selected_action[:40] + "..." if len(selected_action) > 40 else selected_action
-                    
-                    nodes_data.append({
-                        "id": action_node_id,
-                        "label": action_short,
-                        "type": "action",
-                        "step": node.step,
-                        "url": None,
-                        "screenshot": None,
-                        "status": "selected",
-                        "thought": node.thought or "",
-                        "action": selected_action
-                    })
-                    
-                    # Add edge from state node to selected action node
-                    edges_data.append({
-                        "from": state_node_id,
-                        "to": action_node_id,
-                        "label": "",
-                        "type": "action_edge",
-                        "status": "selected"
-                    })
-                    
-                    # Add edge from selected action node to next state node
-                    next_state_id = f"state_{state_index + 1}" if state_index + 1 < len([n for n in self.nodes if not n.is_root()]) else "end"
-                    edges_data.append({
-                        "from": action_node_id,
-                        "to": next_state_id,
-                        "label": "",
-                        "type": "execution_edge",
-                        "status": "executed"
-                    })
-            else:
-                # If no candidates but there's a selected action, create a single action node
-                if selected_action:
-                    action_node_id = f"action_{state_index}_0"
-                    action_short = selected_action[:40] + "..." if len(selected_action) > 40 else selected_action
-                    
-                    nodes_data.append({
-                        "id": action_node_id,
-                        "label": action_short,
-                        "type": "action",
-                        "step": node.step,
-                        "url": None,
-                        "screenshot": None,
-                        "status": "selected",
-                        "thought": node.thought or "",
-                        "action": selected_action
-                    })
-                    
-                    # Add edge from state node to action node
-                    edges_data.append({
-                        "from": state_node_id,
-                        "to": action_node_id,
-                        "label": "",
-                        "type": "action_edge",
-                        "status": "selected"
-                    })
-                    
-                    # Add edge from action node to next state node
-                    next_state_id = f"state_{state_index + 1}" if state_index + 1 < len([n for n in self.nodes if not n.is_root()]) else "end"
-                    edges_data.append({
-                        "from": action_node_id,
-                        "to": next_state_id,
-                        "label": "",
-                        "type": "execution_edge",
-                        "status": "executed"
-                    })
-                else:
-                    # If no candidates and no selected action, add direct edge to next state
-                    next_state_id = f"state_{state_index + 1}" if state_index + 1 < len([n for n in self.nodes if not n.is_root()]) else "end"
-                    edges_data.append({
-                        "from": state_node_id,
-                        "to": next_state_id,
-                        "label": "",
-                        "type": "execution_edge",
-                        "status": "executed"
-                    })
-            
-            state_index += 1
-        
-        # Add edge from root to first state node
-        if len(self.nodes) > 1:  # More than just root
-            first_state_id = "state_0"
-            edges_data.append({
-                "from": "root",
-                "to": first_state_id,
-                "label": "",
-                "type": "start_edge",
-                "status": "start"
-            })
-        
-        return nodes_data, edges_data
-
-    def _generate_svg_template(self, nodes_data: List[Dict[str, Any]], edges_data: List[Dict[str, Any]]) -> str:
-        """Generate SVG template for trajectory visualization."""
-        
-        # Base dimensions
-        margin = 60
-        node_width = 200
-        node_height = 100
-        action_width = 150
-        action_height = 60
-        action_spacing = 20
-        vertical_gap = 40  # Gap between state and actions
-        horizontal_gap = 100  # Gap between steps
-        
-        # Analyze content to determine layout
-        max_step = max((node['step'] for node in nodes_data), default=0)
-        step_info = {}
-        
-        for step in range(max_step + 1):
-            step_nodes = [n for n in nodes_data if n['step'] == step]
-            state_nodes = [n for n in step_nodes if n['type'] == 'state']
-            action_nodes = [n for n in step_nodes if n['type'] == 'action']
-            
-            step_info[step] = {
-                'state_nodes': state_nodes,
-                'action_nodes': action_nodes,
-                'action_count': len(action_nodes)
-            }
-        
-        # Calculate optimal layout for each step
-        step_positions = {}
-        max_width = 0
-        total_height = margin * 2
-        
-        for step in range(max_step + 1):
-            info = step_info[step]
-            state_nodes = info['state_nodes']
-            action_nodes = info['action_nodes']
-            
-            # Calculate step width based on actions
-            if action_nodes:
-                # Calculate how many actions can fit in one row
-                available_width = 1200  # Reasonable max width
-                actions_per_row = max(1, available_width // (action_width + action_spacing))
-                rows = (len(action_nodes) + actions_per_row - 1) // actions_per_row
-                step_width = min(actions_per_row * (action_width + action_spacing) - action_spacing, available_width)
-            else:
-                step_width = node_width
-                rows = 1
-            
-            step_positions[step] = {
-                'x': margin + step * (step_width + horizontal_gap),
-                'y': margin + step * (node_height + vertical_gap + action_height * rows + vertical_gap),
-                'width': step_width,
-                'rows': rows
-            }
-            
-            max_width = max(max_width, step_positions[step]['x'] + step_width)
-            total_height = max(total_height, step_positions[step]['y'] + node_height + vertical_gap + action_height * rows)
-        
-        # Set final dimensions
-        total_width = max_width + margin
-        total_height += margin
-        
-        # Calculate adaptive font sizes
-        base_font_size = 12
-        title_font_size = 14
-        text_font_size = 12
-        
-        svg_lines = [
-            f'<svg width="{total_width}" height="{total_height}" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">',
-            '  <defs>',
-            '    <style>',
-            '      .node { fill: #e1f5fe; stroke: #01579b; stroke-width: 2; cursor: pointer; }',
-            '      .root { fill: #bbdefb; stroke: #0277bd; stroke-width: 3; cursor: pointer; }',
-            '      .state { fill: #f3e5f5; stroke: #7b1fa2; stroke-width: 2; cursor: pointer; }',
-            '      .action { fill: #fff3e0; stroke: #f57c00; stroke-width: 1; cursor: pointer; }',
-            '      .selected { fill: #c8e6c9; stroke: #388e3c; stroke-width: 2; cursor: pointer; }',
-            '      .candidate { fill: #ffecb3; stroke: #f9a825; stroke-width: 1; cursor: pointer; }',
-            '      .edge { stroke: #666; stroke-width: 2; fill: none; }',
-            '      .execution-edge { stroke: #4caf50; stroke-width: 3; fill: none; }',
-            '      .action-edge { stroke: #ff9800; stroke-width: 1; fill: none; }',
-            f'      .text {{ font-family: Arial, sans-serif; font-size: {text_font_size}px; text-anchor: middle; }}',
-            f'      .title-text {{ font-family: Arial, sans-serif; font-size: {title_font_size}px; font-weight: bold; text-anchor: middle; }}',
-            '      .node:hover { stroke-width: 4; }',
-            '    </style>',
-            '  </defs>',
-            '  <script>',
-            '    function openScreenshot(screenshotPath) {',
-            '      if (screenshotPath) {',
-            '        window.open("file://" + screenshotPath, "_blank");',
-            '      }',
-            '    }',
-            '  </script>'
-        ]
-        
-        # Position nodes
-        node_positions = {}
-        
-        # Position root node
-        root_node = next((n for n in nodes_data if n['type'] == 'root'), None)
-        if root_node:
-            root_pos = step_positions.get(0, {'x': margin, 'y': margin})
-            node_positions[root_node['id']] = (root_pos['x'], root_pos['y'])
-        
-        # Position all other nodes
-        for step in range(max_step + 1):
-            if step == 0:
-                continue  # Skip root, already positioned
-                
-            pos = step_positions.get(step, {'x': margin, 'y': margin})
-            info = step_info.get(step, {'state_nodes': [], 'action_nodes': []})
-            
-            # Position state nodes
-            for state_node in info['state_nodes']:
-                state_x = pos['x'] + (pos['width'] - node_width) // 2  # Center in step width
-                node_positions[state_node['id']] = (state_x, pos['y'])
-            
-            # Position action nodes
-            action_nodes = info['action_nodes']
-            if action_nodes:
-                # Calculate layout for actions
-                actions_per_row = max(1, pos['width'] // (action_width + action_spacing))
-                rows = (len(action_nodes) + actions_per_row - 1) // actions_per_row
-                
-                # Center actions in the step width
-                total_action_width = min(actions_per_row, len(action_nodes)) * (action_width + action_spacing) - action_spacing
-                start_x = pos['x'] + (pos['width'] - total_action_width) // 2
-                action_y = pos['y'] + node_height + vertical_gap
-                
-                for i, action_node in enumerate(action_nodes):
-                    row = i // actions_per_row
-                    col = i % actions_per_row
-                    action_x = start_x + col * (action_width + action_spacing)
-                    action_y_offset = action_y + row * (action_height + 10)
-                    node_positions[action_node['id']] = (action_x, action_y_offset)
-        
-        # Draw edges
-        for edge in edges_data:
-            from_pos = node_positions.get(edge['from'])
-            to_pos = node_positions.get(edge['to'])
-            
-            if from_pos and to_pos:
-                x1, y1 = from_pos
-                x2, y2 = to_pos
-                
-                # Adjust positions to center of nodes
-                from_node = next((n for n in nodes_data if n['id'] == edge['from']), None)
-                to_node = next((n for n in nodes_data if n['id'] == edge['to']), None)
-                
-                # Calculate center positions based on node type
-                if from_node and from_node['type'] == 'root':
-                    x1 += node_width // 2
-                    y1 += node_height // 2
-                elif from_node and from_node['type'] == 'state':
-                    x1 += node_width // 2
-                    y1 += node_height // 2
-                elif from_node and from_node['type'] == 'action':
-                    x1 += action_width // 2
-                    y1 += action_height // 2
-                
-                if to_node and to_node['type'] == 'state':
-                    x2 += node_width // 2
-                    y2 += node_height // 2
-                elif to_node and to_node['type'] == 'action':
-                    x2 += action_width // 2
-                    y2 += action_height // 2
-                
-                edge_class = "execution-edge" if edge['type'] == 'execution_edge' else "action-edge"
-                svg_lines.append(f'  <line x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}" class="{edge_class}"/>')
-        
-        # Draw nodes
-        for node in nodes_data:
-            pos = node_positions.get(node['id'])
-            if not pos:
-                continue
-                
-            x, y = pos
-            node_type = node['type']
-            status = node.get('status', '')
-            
-            # Determine node class
-            if node_type == 'root':
-                node_class = 'root'
-            elif node_type == 'state':
-                node_class = 'state'
-            elif node_type == 'action':
-                if status == 'selected':
-                    node_class = 'selected'
-                else:
-                    node_class = 'candidate'
-            else:
-                node_class = 'node'
-            
-            # Draw node rectangle with click event
-            width = node_width if node_type != 'action' else action_width
-            height = node_height if node_type != 'action' else action_height
-            
-            # Add clickable link for state nodes to open screenshot
-            if node_type == 'state' and node.get('screenshot_path'):
-                screenshot_path = node['screenshot_path']
-                # Use <a> tag instead of onclick for better PDF compatibility
-                svg_lines.append(f'  <a xlink:href="file://{screenshot_path}" target="_blank">')
-                svg_lines.append(f'    <rect x="{x}" y="{y}" width="{width}" height="{height}" class="{node_class}"/>')
-                svg_lines.append(f'  </a>')
-            else:
-                svg_lines.append(f'  <rect x="{x}" y="{y}" width="{width}" height="{height}" class="{node_class}"/>')
-            
-            # Draw node text
-            text_x = x + width // 2
-            text_y = y + height // 2
-            
-            if node_type == 'root':
-                # Split root label into multiple lines
-                label = node["label"]
-                lines = label.split('\n')
-                for i, line in enumerate(lines):
-                    line_y = text_y - (len(lines) - 1) * 8 + i * 16
-                    svg_lines.append(f'  <text x="{text_x}" y="{line_y}" class="title-text">{line}</text>')
-            else:
-                # Adaptive text wrapping based on node size
-                label = node['label']
-                max_chars = int((action_width if node_type == 'action' else node_width) / (text_font_size * 0.6))  # Adaptive based on node width
-                max_chars = max(10, min(max_chars, 50))  # Reasonable bounds
-                
-                if len(label) > max_chars:
-                    words = label.split()
-                    lines = []
-                    current_line = ""
-                    for word in words:
-                        if len(current_line + " " + word) <= max_chars:
-                            current_line += (" " + word) if current_line else word
-                        else:
-                            if current_line:
-                                lines.append(current_line)
-                            current_line = word
-                    if current_line:
-                        lines.append(current_line)
-                else:
-                    lines = [label]
-                
-                # Limit to reasonable number of lines
-                max_lines = 3 if node_type == 'action' else 5
-                if len(lines) > max_lines:
-                    lines = lines[:max_lines-1] + [lines[max_lines-1][:max_chars-3] + "..."]
-                
-                line_height = int(text_font_size * 1.2)
-                for i, line in enumerate(lines):
-                    line_y = text_y - (len(lines) - 1) * line_height // 2 + i * line_height
-                    svg_lines.append(f'  <text x="{text_x}" y="{line_y}" class="text">{line}</text>')
-        
-        svg_lines.append('</svg>')
-        
-        return '\n'.join(svg_lines)
-
-
-    def _generate_graphviz_nodes(self) -> List[str]:
-        """Generate Graphviz node definitions."""
-        lines = []
-        
-        # Define node styles
-        lines.append("  // Node styles")
-        lines.append('  root [label="Root\\n' + (self.root.intent or "Task") + '", fillcolor=lightblue];')
-        
-        # Add all nodes (using safe node IDs)
-        for i, node in enumerate(self.nodes):
-            if node.is_root():
-                continue  # Root node is already defined above
-            
-            safe_id = f"node_{i}"
-            label = f"Step {node.step}"
-            if node.url:
-                # Truncate long URLs
-                url_short = node.url[:50] + "..." if len(node.url) > 50 else node.url
-                label += f"\\n{url_short}"
-            
-            # Add candidates info to node label
-            candidates = self.get_candidates_at_node(node.node_id)
-            if candidates:
-                candidates_text = f"\\nCandidates: {len(candidates)}"
-                label += candidates_text
-                
-            lines.append(f'  {safe_id} [label="{label}", fillcolor=lightgreen];')
-        
-        return lines
-
-    def _generate_graphviz_edges(self) -> List[str]:
-        """Generate Graphviz edge definitions."""
-        lines = []
-        
-        # Add main path edges (SELECTED)
-        lines.append("  // Main path (selected actions)")
-        for edge in self.main_path_edges():
-            parent = self._get_safe_node_id(edge.parent_id)
-            child = self._get_safe_node_id(edge.child_id, is_temp=True)
-            
-            action_short = edge.action[:30] + "..." if len(edge.action) > 30 else edge.action
-            lines.append(f'  {parent} -> {child} [label="{action_short}", color=green, penwidth=2];')
-        
-        # Add candidate edges (connecting to candidate nodes)
-        lines.append("  // Candidate actions")
-        for edge in self.edges:
-            # Check if target node is in candidate state
-            target_node = self.get_node(edge.child_id)
-            if target_node and target_node.status == NodeStatus.CANDIDATE:
-                parent = self._get_safe_node_id(edge.parent_id)
-                child = f"temp_{edge.child_id}"
-                
-                action_short = edge.action[:30] + "..." if len(edge.action) > 30 else edge.action
-                lines.append(f'  {parent} -> {child} [label="{action_short}", color=red, style=dashed];')
-        
-        # Add node candidates as subgraph
-        lines.append("  // Node candidates details")
-        for i, node in enumerate(self.nodes):
-            if node.is_root():
-                continue
-            safe_id = f"node_{i}"
-            candidates = self.get_candidates_at_node(node.node_id)
-            if candidates:
-                for j, candidate in enumerate(candidates):
-                    candidate_id = f"{safe_id}_candidate_{j}"
-                    action_short = candidate.action[:40] + "..." if len(candidate.action) > 40 else candidate.action
-                    lines.append(f'  {candidate_id} [label="{action_short}", shape=ellipse, fillcolor=lightyellow, style=dashed];')
-                    lines.append(f'  {safe_id} -> {candidate_id} [style=dotted, color=orange, label="candidate"];')
-        
-        return lines
-
-    def _get_safe_node_id(self, node_id: str, is_temp: bool = False) -> str:
-        """Get safe node ID for Graphviz output."""
-        if node_id == self.root.node_id:
-            return "root"
-        
-        # Find the node index
-        for i, node in enumerate(self.nodes):
+    
+    # ---- Node type checking methods ----
+    
+    def get_node(self, node_id: str) -> Optional[TrajNode]:
+        """Get a node by its ID."""
+        for node in self.nodes:
             if node.node_id == node_id:
-                if is_temp:
-                    return f"temp_{node_id}"
-                else:
-                    return f"node_{i}"
+                return node
+        return None
+    
+    def is_state_node(self, node_id: str) -> bool:
+        """Check if a node is a state node."""
+        node = self.get_node(node_id)
+        return node is not None and node.is_state()
+    
+    def is_candidate_node(self, node_id: str) -> bool:
+        """Check if a node is a candidate node."""
+        node = self.get_node(node_id)
+        return node is not None and node.is_candidate()
+    
+    def is_root_node(self, node_id: str) -> bool:
+        """Check if a node is the root node."""
+        node = self.get_node(node_id)
+        return node is not None and node.is_root()
+    
+    def is_selected_node(self, node_id: str) -> bool:
+        """Check if a node is a selected node."""
+        node = self.get_node(node_id)
+        return node is not None and node.is_selected()
+    
+    def get_state_nodes(self) -> List[TrajState]:
+        """Get all state nodes."""
+        return [node for node in self.nodes if node.is_state()]
+    
+    def get_candidate_nodes(self) -> List[TrajCandidate]:
+        """Get all candidate nodes."""
+        return [node for node in self.nodes if node.is_candidate()]
+    
+    def get_selected_nodes(self) -> List[TrajCandidate]:
+        """Get all selected candidate nodes."""
+        return [node for node in self.nodes if node.is_selected()]
+    
+    # ---- Graphviz visualization methods ----
+    
+    def to_graphviz(self, filename: str = "trajectory") -> str:
+        """Generate Graphviz DOT format trajectory graph."""
+        from graphviz import Digraph
         
-        # Fallback
-        return f"temp_{node_id}" if is_temp else node_id
+        # Create Digraph
+        G = Digraph(filename, filename)
+        G.attr(rankdir="TB")
+        G.attr("node", shape="box", style="filled")
+        
+        # Add root node
+        root_label = f"ROOT\nTask: {self.root.intent or 'Unknown'}\nRun ID: {self.root.run_id}"
+        if self.root.url:
+            root_label += f"\nURL: {self.root.url[:50]}..."
+        
+        # Add screenshot if available
+        if hasattr(self.root, 'screenshot_path') and self.root.screenshot_path:
+            G.node(self.root.node_id, root_label, URL=self.root.screenshot_path)
+        else:
+            G.node(self.root.node_id, root_label, fillcolor="lightblue")
+        
+        # Add all other nodes
+        for node in self.nodes:
+            if node.is_root():
+                continue  # Skip root, already added
+            
+            if node.is_state():
+                self._add_state_node_to_graphviz(G, node)
+            elif node.is_candidate():
+                self._add_candidate_node_to_graphviz(G, node)
+        
+        # Add edges
+        self._add_edges_to_graphviz(G)
+        
+        return G.source
+    
+    def save_graphviz(self, filename: str = "trajectory", output_dir: str = ".") -> str:
+        """Save Graphviz visualization to file."""
+        from graphviz import Digraph
+        
+        # Create Digraph
+        G = Digraph(filename, filename, directory=output_dir)
+        G.attr(rankdir="TB")
+        G.attr("node", shape="box", style="filled")
+        
+        # Add root node
+        root_label = f"ROOT\nTask: {self.root.intent or 'Unknown'}\nRun ID: {self.root.run_id}"
+        if self.root.url:
+            root_label += f"\nURL: {self.root.url[:50]}..."
+        
+        # Add screenshot if available
+        if hasattr(self.root, 'screenshot_path') and self.root.screenshot_path:
+            G.node(self.root.node_id, root_label, URL=self.root.screenshot_path)
+        else:
+            G.node(self.root.node_id, root_label, fillcolor="lightblue")
+        
+        # Add all other nodes
+        for node in self.nodes:
+            if node.is_root():
+                continue  # Skip root, already added
+            
+            if node.is_state():
+                self._add_state_node_to_graphviz(G, node)
+            elif node.is_candidate():
+                self._add_candidate_node_to_graphviz(G, node)
+        
+        # Add edges
+        self._add_edges_to_graphviz(G)
+        
+        # Render the graph
+        output_path = G.render(format="pdf", cleanup=True)
+        return output_path
+    
+    def _add_state_node_to_graphviz(self, G, node: TrajState):
+        """Add a state node to Graphviz graph."""
+        label = f"State {node.step}"
+        if node.url:
+            label += f"\nURL: {node.url[:50]}..."
+        
+        # Add observation info if available
+        if node.observation_hash:
+            label += f"\nHash: {node.observation_hash[:8]}..."
+        
+        # Add screenshot if available
+        if node.screenshot_path:
+            G.node(node.node_id, label, URL=node.screenshot_path, fillcolor="lightgreen")
+        else:
+            G.node(node.node_id, label, fillcolor="lightgreen")
+    
+    def _add_candidate_node_to_graphviz(self, G, node: TrajCandidate):
+        """Add a candidate node to Graphviz graph."""
+        # Determine color based on status
+        if node.is_selected():
+            fillcolor = "lightgreen"  # Selected candidates - green
+            style = "filled,bold"
+        else:
+            fillcolor = "lightyellow"  # Regular candidates - yellow
+            style = "filled,dashed"
+        
+        # Create simplified node ID
+        candidate_index = self._get_candidate_index(node)
+        simple_id = f"candidate_{candidate_index}"
+        
+        # Create label with action and meaning
+        label = f"Candidate {candidate_index}\nAction: {node.action or 'Unknown'}"
+        
+        # Add meaning if available
+        if node.meaning:
+            label += f"\nMeaning: {node.meaning}"
+        elif node.action:
+            # Try to extract meaning from action
+            meaning = self._extract_action_meaning(node.action)
+            if meaning:
+                label += f"\nMeaning: {meaning}"
+        
+        # Add thought if available (truncated)
+        if node.thought:
+            thought_short = node.thought[:50] + "..." if len(node.thought) > 50 else node.thought
+            label += f"\nThought: {thought_short}"
+        
+        G.node(simple_id, label, fillcolor=fillcolor, style=style)
+        
+        # Store mapping for edge creation
+        if not hasattr(self, '_node_id_mapping'):
+            self._node_id_mapping = {}
+        self._node_id_mapping[node.node_id] = simple_id
+    
+    def _add_edges_to_graphviz(self, G):
+        """Add edges to Graphviz graph."""
+        for node in self.nodes:
+            if node.is_root():
+                # Add edge from root to first state
+                first_state = self._get_first_state()
+                if first_state:
+                    G.edge(self.root.node_id, first_state.node_id, label="start", style="bold")
+            elif node.is_state():
+                # Add edges from state to its candidates
+                for candidate_id in node.candidates:
+                    candidate = self.get_node(candidate_id)
+                    if candidate and candidate.is_candidate():
+                        # Determine edge style based on selection
+                        if candidate.is_selected():
+                            G.edge(node.node_id, candidate_id, label="selected", style="bold", color="green")
+                        else:
+                            G.edge(node.node_id, candidate_id, label="candidate", style="dashed", color="gray")
+                
+                # Add edge from selected candidate to next state
+                selected_candidate = self._get_selected_candidate_for_state(node)
+                if selected_candidate:
+                    next_state = self._get_next_state(node.step)
+                    if next_state:
+                        G.edge(selected_candidate.node_id, next_state.node_id, label="execute", style="bold", color="blue")
+    
+    def _get_first_state(self) -> Optional[TrajState]:
+        """Get the first state node (step 1)."""
+        for node in self.nodes:
+            if node.is_state() and node.step == 1:
+                return node
+        return None
+    
+    def _get_selected_candidate_for_state(self, state: TrajState) -> Optional[TrajCandidate]:
+        """Get the selected candidate for a given state."""
+        for candidate_id in state.candidates:
+            candidate = self.get_node(candidate_id)
+            if candidate and candidate.is_selected():
+                return candidate
+        return None
+    
+    def _get_next_state(self, current_step: int) -> Optional[TrajState]:
+        """Get the next state node after the given step."""
+        for node in self.nodes:
+            if node.is_state() and node.step == current_step + 1:
+                return node
+        return None
+    
+    # ---- Tree manipulation methods for RuntimeManager ----
+    
+    def add_node(self, node: TrajNode) -> None:
+        """Add a node to the tree."""
+        self.nodes.append(node)
+    
+    def add_state_node(self, node_id: str, parent_id: str, step: int, url: Optional[str] = None, 
+                      observation_hash: Optional[str] = None, obs_nodes_info: Optional[Dict[str, Any]] = None,
+                      screenshot_path: Optional[str] = None) -> TrajState:
+        """Add a new state node to the tree."""
+        state_node = TrajState(
+            node_id=node_id,
+            parent_id=parent_id,
+            step=step,
+            url=url,
+            observation_hash=observation_hash,
+            obs_nodes_info=obs_nodes_info,
+            screenshot_path=screenshot_path,
+            candidates=[]
+        )
+        self.add_node(state_node)
+        return state_node
+    
+    def add_candidate_node(self, node_id: str, parent_id: str, thought: Optional[str] = None,
+                          action: Optional[str] = None, meaning: Optional[str] = None,
+                          status: CandidateNodeStatus = CandidateNodeStatus.CANDIDATE) -> TrajCandidate:
+        """Add a new candidate node to the tree."""
+        candidate_node = TrajCandidate(
+            node_id=node_id,
+            parent_id=parent_id,
+            thought=thought,
+            action=action,
+            meaning=meaning,
+            status=status
+        )
+        self.add_node(candidate_node)
+        return candidate_node
+    
+    def add_candidate_to_state(self, state_node_id: str, candidate_node_id: str) -> None:
+        """Add a candidate node to a state node's candidates list."""
+        state_node = self.get_node(state_node_id)
+        if state_node and state_node.is_state():
+            if candidate_node_id not in state_node.candidates:
+                state_node.candidates.append(candidate_node_id)
+    
+    def mark_candidate_as_selected(self, candidate_node_id: str) -> None:
+        """Mark a candidate node as selected."""
+        candidate_node = self.get_node(candidate_node_id)
+        if candidate_node and candidate_node.is_candidate():
+            candidate_node.status = CandidateNodeStatus.SELECTED

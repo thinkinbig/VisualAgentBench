@@ -38,10 +38,7 @@ from .types import (
     PairwiseMatch,
     RewardRequest,
     RewardResponse,
-    AggregateInfo,
     CheckpointInfo,
-    ObservationData,
-    TrajectoryTreeStats,
 )
 
 
@@ -136,7 +133,7 @@ class RuntimeManager:
             if is_blank and start_url:
                 current_url = start_url
                 obs_nodes = {}
-            observation_text = ObservationData.compose_observation_from_nodes(obs_nodes)
+            observation_text = self.compose_observation_from_nodes(obs_nodes)
 
             # Update checkpoint
             observation_data = self._get_or_create_observation(observation_text, obs_nodes, url=current_url)
@@ -197,11 +194,6 @@ class RuntimeManager:
                 continue
         return "\n".join(lines)
 
-    def set_aggregate(self, aggregate: AggregateInfo) -> None:
-        self._runtime.aggregate = aggregate
-
-    def get_aggregate(self) -> Optional[AggregateInfo]:
-        return self._runtime.aggregate
 
     def append_trajectory(self, thought: str, action: str) -> None:
         try:
@@ -233,28 +225,63 @@ class RuntimeManager:
     def has_environment(self) -> bool:
         return self._env is not None
 
-    def _get_or_create_observation(self, observation_text: str, obs_nodes_info: Optional[Dict[str, Any]], screenshot_path: Optional[str] = None, url: Optional[str] = None) -> ObservationData:
-        """get or create observation data, use hash table for deduplication."""
-        # create temporary observation data to compute hash
-        temp_obs = ObservationData(
-            text=observation_text,
-            nodes_info=obs_nodes_info,
-            screenshot_path=screenshot_path,
-            url=url
-        )
-        hash_key = temp_obs.hash_value
+    def compose_observation_from_nodes(self, obs_nodes: Optional[Dict[str, Any]]) -> str:
+        """Compose observation text from nodes info."""
+        if not obs_nodes:
+            return ""
         
-        # check if observation already exists in hash table
-        if hash_key in self._runtime.observation_hash_table:
-            # return existing observation data, but update screenshot path if new
-            existing_obs = self._runtime.observation_hash_table[hash_key]
-            if screenshot_path and not existing_obs.screenshot_path:
-                existing_obs.screenshot_path = screenshot_path
-            return existing_obs
-        else:
-            # add to hash table and return
-            self._runtime.observation_hash_table[hash_key] = temp_obs
-            return temp_obs
+        # Simple composition - can be enhanced based on actual needs
+        lines = []
+        for node_info in obs_nodes:
+            if isinstance(node_info, dict):
+                text = node_info.get('text', '')
+                if text:
+                    lines.append(f"{text}")
+        
+        return "\n".join(lines)
+
+    def _get_current_screenshot_path(self) -> Optional[str]:
+        """Get the current screenshot path if available."""
+        try:
+            if hasattr(self._env, 'page') and self._env.page:
+                # Create screenshots directory
+                screenshots_dir = os.path.join(os.path.dirname(__file__), "..", "outputs", "screenshots")
+                os.makedirs(screenshots_dir, exist_ok=True)
+                
+                # Generate screenshot filename
+                run_id = "run"
+                screenshot_filename = f"screenshot_{run_id}_step_{self.get_step()}.png"
+                return os.path.join(screenshots_dir, screenshot_filename)
+        except Exception:
+            pass
+        return None
+
+    def _get_or_create_observation(self, observation_text: str, obs_nodes_info: Optional[Dict[str, Any]], screenshot_path: Optional[str] = None, url: Optional[str] = None) -> Any:
+        """get or create observation data, use hash table for deduplication."""
+        # Simplified version - just return a dict
+        return {
+            "text": observation_text,
+            "nodes_info": obs_nodes_info,
+            "screenshot_path": screenshot_path,
+            "url": url
+        }
+    
+    def compose_trajectory_from_meta(self) -> str:
+        """Compose trajectory text from trajectory tree."""
+        if self._trajectory_tree is None:
+            return ""
+        
+        # Get selected actions from trajectory tree
+        selected_nodes = self._trajectory_tree.get_selected_nodes()
+        if not selected_nodes:
+            return ""
+        
+        lines = []
+        for node in selected_nodes:
+            if node.thought and node.action:
+                lines.append(f"{{THOUGHT: {node.thought}, ACTION: {node.action}}}")
+        
+        return "\n".join(lines)
 
     def _describe_action(self, action_str: str) -> str:
         """Human-readable action meaning by looking up AXTREE id label from current observation."""
@@ -352,7 +379,7 @@ class RuntimeManager:
 
         current_url = extract_current_url(info, self.get_current_url())
         obs_nodes = extract_obs_nodes_info(info)
-        observation_text = ObservationData.compose_observation_from_nodes(obs_nodes)
+        observation_text = self.compose_observation_from_nodes(obs_nodes)
 
         # Save screenshot if available
         screenshot_path = None
@@ -495,64 +522,135 @@ class RuntimeManager:
     
     def initialize_trajectory_tree(self, intent: str, run_id: Optional[str] = None) -> None:
         """Initialize the trajectory tree with root node."""
-        # Trajectory tree is now managed externally
-        pass
+        from .trajectory_tree import TrajectoryTree, TrajRoot
+        
+        # Create root node with screenshot if available
+        root = TrajRoot(
+            node_id="root",
+            parent_id=None,
+            step=0,
+            intent=intent,
+            run_id=run_id or "default_run",
+            screenshot_path=self._get_current_screenshot_path()
+        )
+        
+        # Initialize trajectory tree
+        self._trajectory_tree = TrajectoryTree(root)
 
     def get_trajectory_tree(self) -> Optional[Any]:
         """Get the current trajectory tree."""
         return self._trajectory_tree
 
-    def add_trajectory_node(self, parent_id: str, url: Optional[str] = None, checkpoint: Optional[CheckpointInfo] = None, thought: Optional[str] = None, action: Optional[str] = None, meaning: Optional[str] = None) -> str:
-        """Add a new trajectory node to the tree."""
-        # Trajectory tree is now managed externally
-        return ""
-
-    def add_candidate_node(self, parent_id: str, thought: str, action: str, meaning: Optional[str] = None) -> str:
-        """Add a candidate action as a child node."""
-        # Trajectory tree is now managed externally
-        return ""
 
 
-    def select_node(self, node_id: str) -> None:
-        """Mark a node as selected (moved from candidate to selected state)."""
-        # Trajectory tree is now managed externally
-        pass
 
     def get_current_node_id(self) -> Optional[str]:
-        """Get the current active node ID (the most recently added node)."""
-        # Trajectory tree is now managed externally
+        """Get the current active node ID (the most recently added state node)."""
+        if self._trajectory_tree is None:
+            return None
+        
+        # Find the most recent state node by step
+        current_step = self.get_step()
+        state_nodes = self._trajectory_tree.get_state_nodes()
+        for node in state_nodes:
+            if node.step == current_step:
+                return node.node_id
         return None
 
     def get_parent_node_id(self) -> Optional[str]:
         """Get the parent node ID for the current step."""
-        # Trajectory tree is now managed externally
-        return "root"
+        if self._trajectory_tree is None:
+            return "root"
+        
+        # Find the most recent state node (parent for new state)
+        state_nodes = self._trajectory_tree.get_state_nodes()
+        if not state_nodes:
+            return "root"  # Default to root if no state nodes
+        
+        # Return the most recent state node
+        return max(state_nodes, key=lambda n: n.step).node_id
 
     def update_trajectory_tree_after_action(self, thought: str, action: str, url: Optional[str] = None) -> None:
         """Update trajectory tree after executing an action."""
-        # Trajectory tree is now managed externally
-        pass
-
-    def export_trajectory_tree_html(self, output_path: Optional[str] = None) -> str:
-        """Export trajectory tree as interactive HTML."""
-        # Trajectory tree is now managed externally
-        return ""
+        if self._trajectory_tree is None:
+            return
+        
+        import uuid
+        
+        # Get current step and parent
+        current_step = self.get_step()
+        parent_id = self.get_parent_node_id()
+        
+        # Get current observation info
+        checkpoint = self.get_checkpoint()
+        observation_hash = None
+        obs_nodes_info = None
+        if checkpoint and checkpoint.observation:
+            obs_nodes_info = checkpoint.observation.get("nodes_info")
+            # Generate simple hash from observation text
+            obs_text = checkpoint.observation.get("text", "")
+            if obs_text:
+                import hashlib
+                observation_hash = hashlib.md5(obs_text.encode()).hexdigest()[:16]
+        
+        # Create a new state node representing the result of this action
+        state_node_id = f"state_{current_step}_{uuid.uuid4().hex[:8]}"
+        self._trajectory_tree.add_state_node(
+            node_id=state_node_id,
+            parent_id=parent_id,
+            step=current_step,
+            url=url,
+            observation_hash=observation_hash,
+            obs_nodes_info=obs_nodes_info,
+            screenshot_path=self._get_current_screenshot_path()
+        )
+        
+        # Add candidate nodes for this state (if we have pending candidates)
+        selected_candidate_id = None
+        if hasattr(self, '_pending_candidates') and self._pending_candidates:
+            for i, candidate in enumerate(self._pending_candidates):
+                # Use simple candidate naming: candidate_1, candidate_2, etc.
+                candidate_node_id = f"candidate_{i + 1}"
+                self._trajectory_tree.add_candidate_node(
+                    node_id=candidate_node_id,
+                    parent_id=state_node_id,
+                    thought=candidate.thought or "",
+                    action=candidate.action or "",
+                    meaning=candidate.meaning or self._describe_action(candidate.action or "")
+                )
+                
+                # Add to state's candidates list
+                self._trajectory_tree.add_candidate_to_state(state_node_id, candidate_node_id)
+                
+                # Check if this candidate matches the executed action
+                if candidate.action == action:
+                    selected_candidate_id = candidate_node_id
+            
+            # Mark the selected candidate as selected
+            if selected_candidate_id:
+                self._trajectory_tree.mark_candidate_as_selected(selected_candidate_id)
+        
+        # Clear pending candidates
+        if hasattr(self, '_pending_candidates'):
+            self._pending_candidates = []
 
     def export_trajectory_tree_graphviz(self) -> str:
         """Export trajectory tree as Graphviz DOT format."""
-        # Trajectory tree is now managed externally
-        return ""
+        if self._trajectory_tree is None:
+            return ""
+        return self._trajectory_tree.to_graphviz()
 
     def export_trajectory_tree_json(self) -> str:
         """Export trajectory tree as JSON."""
-        # Trajectory tree is now managed externally
-        return "{}"
+        if self._trajectory_tree is None:
+            return "{}"
+        return self._trajectory_tree.to_json()
 
     def record_candidates(self, candidates: List[BlockInfo]) -> None:
-        """Record candidate actions for the current step (will be added to node after action execution)."""
-        # Store candidates in runtime for later use when creating the node
+        """Record candidate actions for the current step."""
+        # Store candidates in runtime for later use
         self._runtime.current_round_samples = [c.action for c in candidates]
-        # Also store the full candidate objects in a temporary location
+        # Store the full candidate objects in a temporary location
         if not hasattr(self, '_pending_candidates'):
             self._pending_candidates = []
         self._pending_candidates = candidates
@@ -564,16 +662,29 @@ class RuntimeManager:
             return self._pending_candidates
         return []
 
-    def get_trajectory_tree_stats(self) -> TrajectoryTreeStats:
+    def get_trajectory_tree_stats(self) -> Dict[str, Any]:
         """Get statistics about the trajectory tree."""
-        # Trajectory tree is now managed externally
-        return TrajectoryTreeStats(
-            total_nodes=0,
-            main_path_length=0,
-            candidate_nodes=0,
-            selected_nodes=0,
-            total_candidates=0
-        )
+        if self._trajectory_tree is None:
+            return {
+                "total_nodes": 0,
+                "state_nodes": 0,
+                "candidate_nodes": 0,
+                "selected_nodes": 0,
+                "total_candidates": 0
+            }
+        
+        # Use the new methods from TrajectoryTree
+        state_nodes = self._trajectory_tree.get_state_nodes()
+        candidate_nodes = self._trajectory_tree.get_candidate_nodes()
+        selected_nodes = self._trajectory_tree.get_selected_nodes()
+        
+        return {
+            "total_nodes": len(self._trajectory_tree.nodes),
+            "state_nodes": len(state_nodes),
+            "candidate_nodes": len(candidate_nodes),
+            "selected_nodes": len(selected_nodes),
+            "total_candidates": sum(len(n.candidates) for n in state_nodes)
+        }
 
 
 

@@ -398,7 +398,7 @@ def main() -> None:
         # Save trajectory tree to outputs directory
         try:
             if hasattr(agent, 'rt') and hasattr(agent.rt, 'export_trajectory_tree_json'):
-                # Create outputs directory structure
+                # Create outpu directory structure
                 outputs_dir = Path("outputs")
                 trajectory_dir = outputs_dir / "trajectory"
                 trajectory_dir.mkdir(parents=True, exist_ok=True)
