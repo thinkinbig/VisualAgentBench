@@ -143,7 +143,7 @@ class RuntimeManager:
             observation_text = ObservationData.compose_observation_from_nodes(obs_nodes)
 
             # Update checkpoint
-            observation_data = self._get_or_create_observation(observation_text, obs_nodes)
+            observation_data = self._get_or_create_observation(observation_text, obs_nodes, url=current_url)
             cp = CheckpointInfo(
                 step=self._runtime.step,
                 url=current_url or "",
@@ -237,13 +237,14 @@ class RuntimeManager:
     def has_environment(self) -> bool:
         return self._env is not None
 
-    def _get_or_create_observation(self, observation_text: str, obs_nodes_info: Optional[Dict[str, Any]], screenshot_path: Optional[str] = None) -> ObservationData:
+    def _get_or_create_observation(self, observation_text: str, obs_nodes_info: Optional[Dict[str, Any]], screenshot_path: Optional[str] = None, url: Optional[str] = None) -> ObservationData:
         """get or create observation data, use hash table for deduplication."""
         # create temporary observation data to compute hash
         temp_obs = ObservationData(
             text=observation_text,
             nodes_info=obs_nodes_info,
-            screenshot_path=screenshot_path
+            screenshot_path=screenshot_path,
+            url=url
         )
         hash_key = temp_obs.hash_value
         
@@ -385,7 +386,7 @@ class RuntimeManager:
             except Exception:
                 pass
 
-        observation_data = self._get_or_create_observation(observation_text, obs_nodes, screenshot_path)
+        observation_data = self._get_or_create_observation(observation_text, obs_nodes, screenshot_path, current_url)
         cp = CheckpointInfo(
             step=self._runtime.step,
             url=current_url,

@@ -38,17 +38,40 @@ class ObservationData(BaseModel):
         description="AXTREE/SoM nodes mapping (ids -> bounds/centers/text) for clickable overlays",
     )
     screenshot_path: Optional[str] = Field(None, description="Path to the screenshot image for this observation.")
+    url: Optional[str] = Field(None, description="Current page URL for deduplication.")
     hash_value: Optional[str] = Field(None, description="Computed hash for deduplication and debugging.")
     
     def model_post_init(self, __context) -> None:
         """Automatically compute hash value after creation."""
         if not self.hash_value:
             import hashlib
+            from urllib.parse import urlparse, urlunparse
             try:
                 content = self.text or ""
                 if self.nodes_info:
                     # Convert nodes_info to string for hash calculation
                     content += str(sorted(self.nodes_info.items()))
+                
+                # Add normalized URL to hash if available
+                if hasattr(self, 'url') and self.url:
+                    try:
+                        # Normalize URL to handle cases like localhost:7000 vs localhost:7000/
+                        parsed = urlparse(self.url)
+                        # Reconstruct URL with normalized path (remove trailing slash if it's just root)
+                        normalized_path = parsed.path.rstrip('/') if parsed.path != '/' else ''
+                        normalized_url = urlunparse((
+                            parsed.scheme or 'http',  # Default to http if no scheme
+                            parsed.netloc,
+                            normalized_path,
+                            parsed.params,
+                            parsed.query,
+                            parsed.fragment
+                        ))
+                        content += f"|url:{normalized_url}"
+                    except Exception:
+                        # If URL parsing fails, use original URL
+                        content += f"|url:{self.url}"
+                
                 self.hash_value = hashlib.md5(content.encode('utf-8')).hexdigest()
             except Exception:
                 self.hash_value = ""
