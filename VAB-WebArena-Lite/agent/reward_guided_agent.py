@@ -210,12 +210,8 @@ class RewardGuidedAgent(Agent):
         
         self.logger.info(f"[MULTI_BLOCK] Generated {len(all_candidates)} unique candidates from {num_calls} calls")
         
-        # If we have fewer candidates than target, return what we have
-        if len(all_candidates) <= target_samples:
-            selected_candidates = all_candidates
-        else:
-            # Select best candidates using diversity + quality metrics
-            selected_candidates = CandidateSelector.select_best_candidates(all_candidates, target_samples)
+        # Keep all candidates instead of limiting to target_samples
+        selected_candidates = all_candidates
         
         self.logger.info(f"[MULTI_BLOCK] Selected {len(selected_candidates)} best candidates from {len(all_candidates)} total")
         

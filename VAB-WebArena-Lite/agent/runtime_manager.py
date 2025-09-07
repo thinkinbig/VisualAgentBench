@@ -232,7 +232,7 @@ class RuntimeManager:
         
         # Simple composition - can be enhanced based on actual needs
         lines = []
-        for node_info in obs_nodes:
+        for node_id, node_info in obs_nodes.items():
             if isinstance(node_info, dict):
                 text = node_info.get('text', '')
                 if text:
@@ -298,11 +298,14 @@ class RuntimeManager:
             elem_id = str(m.group(2)).strip()
             verb = m.group(1).lower()
             
-            # Get nodes info from current checkpoint observation
+            # Get nodes info from current checkpoint observation or runtime meta
             nodes = None
             checkpoint = self.get_checkpoint()
             if checkpoint and checkpoint.observation and checkpoint.observation.nodes_info:
                 nodes = checkpoint.observation.nodes_info
+            else:
+                # Fallback to runtime meta obs_nodes_info
+                nodes = self.get_obs_nodes_info()
             
             # Special handling for type actions - extract the content being typed
             if verb == "type":
