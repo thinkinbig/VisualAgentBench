@@ -17,7 +17,7 @@ try:
         extract_current_url,
         extract_obs_nodes_info,
     )
-    from .trajectory_tree import TrajectoryTree
+    from .trajectory_tree import TrajectoryTree, CandidateNodeStatus
 except ImportError:
     # Fallback if browser_env is not available
     Trajectory = list  # type: ignore[assignment]
@@ -25,6 +25,7 @@ except ImportError:
     ScriptBrowserEnv = Any  # type: ignore[assignment]
     AsyncScriptBrowserEnv = Any  # type: ignore[assignment]
     TrajectoryTree = Any  # type: ignore[assignment]
+    CandidateNodeStatus = Any  # type: ignore[assignment]
     
     def extract_current_url(info: Dict[str, Any], fallback: Optional[str] = None) -> str:
         return fallback or ""
@@ -47,7 +48,6 @@ from .types import (
     CheckpointInfo,
 )
 from .parsers import ActionValidator
-
 
 class RuntimeManager:
     """Encapsulates all AgentRuntime mutations and environment-bridging state updates."""
@@ -119,18 +119,6 @@ class RuntimeManager:
         
 
         try:
-            if self.get_obs_nodes_info() or not self.has_environment():
-                # Even if obs_nodes_info already exists, capture a step-0 screenshot for ROOT if possible
-                if self.has_environment():
-                    sp = self._save_current_screenshot(step=self.get_step())
-                    if self._trajectory_tree is not None and sp:
-                        try:
-                            if not getattr(self._trajectory_tree.root, 'screenshot_path', None):
-                                self._trajectory_tree.root.screenshot_path = sp
-                        except Exception:
-                            pass
-                return
-
             # Initialize from environment once to obtain URL + AXTREE
             start_url = meta_data.get("start_url") or meta_data.get("current_url")
             try:
@@ -337,7 +325,11 @@ class RuntimeManager:
     
 
     def _describe_action(self, action_str: str) -> str:
-        """Human-readable action meaning by looking up AXTREE id label from current observation."""
+        """Human-readable action meaning by looking up AXTREE id label from observation.
+
+        Prefer the observation snapshot from when candidates were proposed (if available),
+        then fall back to the latest checkpoint/meta observation.
+        """
         try:
             s = (action_str or "").strip()
             # Extract element id for click/type/hover
@@ -351,19 +343,20 @@ class RuntimeManager:
             elem_id = str(m.group(2)).strip()
             verb = m.group(1).lower()
             
-            # Get nodes info from current checkpoint observation or runtime meta
-            nodes = None
-            checkpoint = self.get_checkpoint()
-            if (
-                checkpoint
-                and checkpoint.observation
-                and isinstance(checkpoint.observation, dict)
-                and checkpoint.observation.get("nodes_info")
-            ):
-                nodes = checkpoint.observation.get("nodes_info")
-            else:
-                # Fallback to runtime meta obs_nodes_info
-                nodes = self.get_obs_nodes_info()
+            # Get nodes info: prefer proposal snapshot if present
+            nodes = getattr(self, "_proposal_nodes_info", None)
+            if nodes is None:
+                checkpoint = self.get_checkpoint()
+                if (
+                    checkpoint
+                    and checkpoint.observation
+                    and isinstance(checkpoint.observation, dict)
+                    and checkpoint.observation.get("nodes_info")
+                ):
+                    nodes = checkpoint.observation.get("nodes_info")
+                else:
+                    # Fallback to runtime meta obs_nodes_info
+                    nodes = self.get_obs_nodes_info()
             
             # Special handling for type actions - extract the content being typed
             if verb == "type":
@@ -593,7 +586,6 @@ class RuntimeManager:
         root = TrajRoot(
             node_id="root",
             parent_id=None,
-            step=0,
             intent=intent,
             run_id=run_id or "default_run",
             screenshot_path=self._get_current_screenshot_path()
@@ -642,9 +634,39 @@ class RuntimeManager:
         
         import uuid
         
-        # Get current step and parent
+        # Get current step
         current_step = self.get_step()
-        parent_id = self.get_parent_node_id()
+        
+        # Determine the state to attach candidates to: always the previous state
+        # For the very first action (current_step == 1), ensure a step-0 state exists
+        attach_parent_id = None
+        try:
+            # Try to find previous state by exact step
+            prev_step = max(0, current_step - 1)
+            state_nodes = self._trajectory_tree.get_state_nodes()
+            prev_state = next((n for n in state_nodes if getattr(n, "step", -1) == prev_step), None)
+            if prev_state is None and prev_step == 0:
+                # Create a step-0 state under root if missing
+                add_id = f"state_0_{uuid.uuid4().hex[:8]}"
+                screenshot_path = self._save_current_screenshot(step=0)
+                state_node = self._trajectory_tree.add_state_node(
+                    node_id=add_id,
+                    parent_id="root",
+                    step=0,
+                    url=self.get_current_url(),
+                    observation_hash=None,
+                    obs_nodes_info=(self.get_checkpoint().observation.get("nodes_info") if self.get_checkpoint() and isinstance(self.get_checkpoint().observation, dict) else self.get_obs_nodes_info()),
+                    screenshot_path=screenshot_path
+                )
+                state_node.parent_id = "root"
+                attach_parent_id = add_id
+            else:
+                attach_parent_id = prev_state.node_id if prev_state else None
+        except Exception:
+            attach_parent_id = None
+        if not attach_parent_id:
+            # Fallback to root (should be rare)
+            attach_parent_id = "root"
         
         # Get current observation info
         checkpoint = self.get_checkpoint()
@@ -662,7 +684,7 @@ class RuntimeManager:
         state_node_id = f"state_{current_step}_{uuid.uuid4().hex[:8]}"
         self._trajectory_tree.add_state_node(
             node_id=state_node_id,
-            parent_id=parent_id,
+            parent_id=attach_parent_id,
             step=current_step,
             url=url,
             observation_hash=observation_hash,
@@ -670,49 +692,47 @@ class RuntimeManager:
             screenshot_path=self._get_current_screenshot_path()
         )
         
-        # Add candidate nodes for the PREVIOUS state (candidates are proposed before executing the action)
+        # Add candidate nodes. If the parent is not a state (e.g., root), attach them to the
+        # newly created current state so root has no candidates.
         selected_candidate_id = None
         if hasattr(self, '_pending_candidates') and self._pending_candidates:
-            # Ensure parent's candidates list is clean for this step to avoid duplicated edges
+            # Attach proposed candidates to the previous state (attach_parent_id)
+
+            # Ensure attach_parent's candidates list is clean for this step to avoid duplicated edges
             try:
-                parent_node = self._trajectory_tree.get_node(parent_id)
-                if parent_node and parent_node.is_state():
-                    existing = getattr(parent_node, 'candidates', [])
-                    # Remove any previous auto-generated candidates for this parent in this step prefix
-                    new_list = [cid for cid in existing if not str(cid).startswith(f"{parent_id}_candidate_")]
-                    parent_node.candidates = new_list
+                attach_parent_node = self._trajectory_tree.get_node(attach_parent_id)
+                if attach_parent_node and attach_parent_node.is_state():
+                    existing = getattr(attach_parent_node, 'candidates', [])
+                    new_list = [cid for cid in existing if not str(cid).startswith(f"{attach_parent_id}_candidate_")]
+                    attach_parent_node.candidates = new_list
             except Exception:
                 pass
+
             for i, candidate in enumerate(self._pending_candidates):
-                # Use per-state unique candidate id to avoid collisions across steps
-                candidate_node_id = f"{parent_id}_candidate_{i + 1}"
+                # Use per-parent unique candidate id to avoid collisions across steps
+                candidate_node_id = f"{attach_parent_id}_candidate_{i + 1}"
                 self._trajectory_tree.add_candidate_node(
                     node_id=candidate_node_id,
-                    parent_id=parent_id,  # attach to the state where candidates were proposed
+                    parent_id=attach_parent_id,
                     thought=candidate.thought or "",
                     action=candidate.action or "",
                     meaning=self._describe_action(candidate.action or "")
                 )
-                
-                # Add to PREVIOUS state's candidates list
-                self._trajectory_tree.add_candidate_to_state(parent_id, candidate_node_id)
-                
+
+                # Add to attach_parent state's candidates list
+                self._trajectory_tree.add_candidate_to_state(attach_parent_id, candidate_node_id)
+
                 # Check if this candidate matches the executed action
                 if candidate.action == action:
                     selected_candidate_id = candidate_node_id
-            
-            # Mark the selected candidate as selected (ensure only one selected per parent state)
+
+            # Mark the selected candidate using tree API to ensure uniqueness
             if selected_candidate_id:
-                # Clear any previous selected under this parent by toggling status on candidate nodes
                 try:
-                    if parent_node:
-                        for cid in getattr(parent_node, 'candidates', []):
-                            cand = self._trajectory_tree.get_node(cid)
-                            if cand and hasattr(cand, 'status') and getattr(cand, 'status', None) == 'selected':
-                                setattr(cand, 'status', 'candidate')
+                    self._trajectory_tree.set_selected_candidate(attach_parent_id, selected_candidate_id)
                 except Exception:
-                    pass
-                self._trajectory_tree.mark_candidate_as_selected(selected_candidate_id)
+                    # Fallback to direct mark if API fails for any reason
+                    self._trajectory_tree.mark_candidate_as_selected(selected_candidate_id)
         
         # Clear pending candidates
         if hasattr(self, '_pending_candidates'):
@@ -747,6 +767,11 @@ class RuntimeManager:
                 obs_nodes_info = self.get_obs_nodes_info()
         except Exception:
             obs_nodes_info = self.get_obs_nodes_info()
+        # Persist a snapshot for subsequent meaning translation
+        try:
+            self._proposal_nodes_info = obs_nodes_info if isinstance(obs_nodes_info, dict) else None
+        except Exception:
+            self._proposal_nodes_info = None
         # If we still don't have obs_nodes_info, force an empty dict so id-based
         # actions (click/hover/type) are treated as invalid rather than allowed.
         if obs_nodes_info is None:

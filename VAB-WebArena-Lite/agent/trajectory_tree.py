@@ -15,141 +15,130 @@ class CandidateNodeStatus(str, Enum):
 
 
 class TrajNode(BaseModel):
-    """基础节点：包含所有节点的通用字段。"""
+    """Base node: common fields for all nodes."""
     node_id: str = Field(..., description="Unique id within the trajectory tree")
     parent_id: Optional[str] = Field(None, description="Parent node id; None for root")
     url: Optional[str] = Field(None, description="Current page URL at this node")
-    
+
     def is_root(self) -> bool:
-        """Check if this is the root node."""
+        """Return True if this node is the root."""
         return self.parent_id is None
-    
+
     @abstractmethod
     def is_state(self) -> bool:
-        """Check if this is a state node."""
+        """Return True if this node is a state node."""
         pass
-    
+
     @abstractmethod
     def is_candidate(self) -> bool:
-        """Check if this is a candidate node."""
+        """Return True if this node is a candidate node (unselected)."""
         pass
 
     @abstractmethod
     def is_selected(self) -> bool:
-        """Check if this is a selected node."""
+        """Return True if this node is a selected candidate node."""
         pass
 
+
 class TrajState(TrajNode):
-    """状态节点：代表执行动作后的浏览器状态。"""
-    step: int = Field(..., description="1-based step index along the EXECUTED main path (root=0)")
-    observation_hash: Optional[str] = Field(None, description="Fingerprint of AXTREE/screenshot for dedup/debug")
+    """State node: represents the browser state after executing an action."""
+    # Note: We allow step to start from 0 (initial state). First state is determined by the smallest step.
+    step: int = Field(..., description="Step index along the EXECUTED path (root can be step=0)")
+    observation_hash: Optional[str] = Field(None, description="Fingerprint for dedup/debug")
     obs_nodes_info: Optional[Dict[str, Any]] = Field(
         None,
-        description="AXTREE/SoM nodes mapping (ids -> bounds/centers/text) for clickable overlays",
+        description="AXTREE/SoM mapping (ids -> bounds/centers/text) for clickable overlays",
     )
     screenshot_path: Optional[str] = Field(None, description="Filesystem path to the screenshot image for this state")
     candidates: List[str] = Field(default_factory=list, description="Child node IDs representing candidate actions")
 
     def is_state(self) -> bool:
-        """State node is always a state."""
         return True
 
     def is_candidate(self) -> bool:
-        """State node is never a candidate."""
         return False
 
     def is_selected(self) -> bool:
-        """State node is never a selected node."""
         return False
 
+
 class TrajCandidate(TrajNode):
-    """候选节点：代表可选的候选动作。"""
-    # Action information stored directly in the node
-    thought: Optional[str] = Field(None, description="Why this action was chosen")
-    action: Optional[str] = Field(None, description="Raw action string: e.g., 'click [577]' or 'goto [http://…]'")
+    """Candidate node: represents a possible action from a state."""
+    thought: Optional[str] = Field(None, description="Reasoning for choosing this action")
+    action: Optional[str] = Field(None, description="Raw action string, e.g., 'click [577]' or 'goto [http://…]'")
     meaning: Optional[str] = Field(None, description="Human-readable action meaning")
     status: CandidateNodeStatus = Field(default=CandidateNodeStatus.CANDIDATE, description="Current status of this candidate")
-    
+
     def is_state(self) -> bool:
-        """State node is never a state."""
         return False
 
     def is_candidate(self) -> bool:
-        """Candidate node is always a candidate."""
         return self.status == CandidateNodeStatus.CANDIDATE
 
-
     def is_selected(self) -> bool:
-        """Candidate node is always a candidate."""
         return self.status == CandidateNodeStatus.SELECTED
 
 
 class TrajRoot(TrajNode):
-    """根节点：包含任务意图和元数据。"""
-    step: int = Field(default=0, description="Root node step (always 0)")
+    """Root node: run metadata and intent."""
     run_id: str = Field(default="", description="Unique run identifier")
     intent: str = Field(default="", description="Task intent/objective")
     meta: Dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
     screenshot_path: Optional[str] = Field(None, description="Filesystem path to the screenshot image for the root state")
 
-
     def is_state(self) -> bool:
-        """Root node is never a state."""
         return False
 
     def is_candidate(self) -> bool:
-        """Root node is never a candidate."""
         return False
 
     def is_selected(self) -> bool:
-        """Root node is never a selected node."""
         return False
+
 
 class TrajectoryTree:
     """Complete trajectory tree: one root + multiple nodes with parent-child relationships."""
-    
+
     def __init__(self, root: TrajRoot):
         self.root = root
         self.nodes: List[TrajNode] = [root]  # Include root in nodes list
-    
+
+    # -------------------- Serialization --------------------
+
     def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary format for serialization."""
-        return {
-            "nodes": [node.model_dump() for node in self.nodes]
-        }
-    
+        """Convert to dictionary for serialization."""
+        return {"nodes": [node.model_dump() for node in self.nodes]}
+
     def to_json(self) -> str:
-        """Convert to JSON string."""
+        """Serialize to JSON string."""
         return json.dumps(self.to_dict(), indent=2, ensure_ascii=False)
-    
+
     @classmethod
     def from_json(cls, json_str: str) -> "TrajectoryTree":
-        """Create TrajectoryTree from JSON string."""
+        """Create TrajectoryTree from a JSON string."""
         data = json.loads(json_str)
         return cls.from_dict(data)
-    
+
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "TrajectoryTree":
-        """Create TrajectoryTree from dictionary data."""
-        nodes = []
-        root = None
-        
+        """Create TrajectoryTree from a dict."""
+        nodes: List[TrajNode] = []
+        root: Optional[TrajRoot] = None
+
         for node_data in data.get("nodes", []):
-            # Determine node type based on available fields
             if node_data.get("parent_id") is None:
-                # This is the root node
+                # Root
                 root = TrajRoot(
                     node_id=node_data["node_id"],
                     parent_id=node_data.get("parent_id"),
-                    step=node_data.get("step", 0),
                     url=node_data.get("url"),
                     run_id=node_data.get("run_id", ""),
                     intent=node_data.get("intent", ""),
                     meta=node_data.get("meta", {}),
-                    screenshot_path=node_data.get("screenshot_path")
+                    screenshot_path=node_data.get("screenshot_path"),
                 )
-            elif "action" in node_data and node_data["action"] is not None:
-                # This is a candidate node
+            elif "action" in node_data and node_data.get("action") is not None:
+                # Candidate
                 node = TrajCandidate(
                     node_id=node_data["node_id"],
                     parent_id=node_data.get("parent_id"),
@@ -157,11 +146,11 @@ class TrajectoryTree:
                     thought=node_data.get("thought"),
                     action=node_data.get("action"),
                     meaning=node_data.get("meaning"),
-                    status=CandidateNodeStatus(node_data.get("status", "candidate"))
+                    status=CandidateNodeStatus(node_data.get("status", "candidate")),
                 )
                 nodes.append(node)
             elif "step" in node_data:
-                # This is a state node (has step field)
+                # State
                 node = TrajState(
                     node_id=node_data["node_id"],
                     parent_id=node_data.get("parent_id"),
@@ -170,257 +159,213 @@ class TrajectoryTree:
                     observation_hash=node_data.get("observation_hash"),
                     obs_nodes_info=node_data.get("obs_nodes_info"),
                     screenshot_path=node_data.get("screenshot_path"),
-                    candidates=node_data.get("candidates", [])
+                    candidates=node_data.get("candidates", []),
                 )
                 nodes.append(node)
             else:
-                # Fallback: try to create a basic node
                 raise ValueError(f"Unknown node type for node_id: {node_data.get('node_id', 'unknown')}")
-        
+
         if root is None:
             raise ValueError("No root node found in JSON data")
-        
-        # Create trajectory tree
+
         tree = cls(root)
-        
-        # Add non-root nodes
         for node in nodes:
             tree.nodes.append(node)
-        
         return tree
-    
-    # ---- Node type checking methods ----
-    
+
+    # -------------------- Lookup helpers --------------------
+
     def get_node(self, node_id: str) -> Optional[TrajNode]:
-        """Get a node by its ID."""
+        """Return the node with the given id, or None if not found."""
         for node in self.nodes:
             if node.node_id == node_id:
                 return node
         return None
-    
+
     def is_state_node(self, node_id: str) -> bool:
-        """Check if a node is a state node."""
         node = self.get_node(node_id)
         return node is not None and node.is_state()
-    
+
     def is_candidate_node(self, node_id: str) -> bool:
-        """Check if a node is a candidate node."""
         node = self.get_node(node_id)
         return node is not None and node.is_candidate()
-    
+
     def is_root_node(self, node_id: str) -> bool:
-        """Check if a node is the root node."""
         node = self.get_node(node_id)
         return node is not None and node.is_root()
-    
+
     def is_selected_node(self, node_id: str) -> bool:
-        """Check if a node is a selected node."""
         node = self.get_node(node_id)
         return node is not None and node.is_selected()
-    
+
     def get_state_nodes(self) -> List[TrajState]:
-        """Get all state nodes."""
         return [node for node in self.nodes if node.is_state()]
-    
+
     def get_candidate_nodes(self) -> List[TrajCandidate]:
-        """Get all candidate nodes."""
-        return [node for node in self.nodes if node.is_candidate()]
-    
+        # Only return candidates that are currently in CANDIDATE status
+        return [node for node in self.nodes if isinstance(node, TrajCandidate) and node.is_candidate()]
+
     def get_selected_nodes(self) -> List[TrajCandidate]:
-        """Get all selected candidate nodes."""
-        return [node for node in self.nodes if node.is_selected()]
-    
-    # ---- Graphviz visualization methods ----
-    
+        return [node for node in self.nodes if isinstance(node, TrajCandidate) and node.is_selected()]
+
+    # -------------------- File URI utility (Plan A) --------------------
+
+    def _as_file_uri(self, p: str) -> str:
+        """Return a canonical file URI: file:///... with URL encoding (spaces, unicode, etc.)."""
+        try:
+            return Path(p).resolve().as_uri()
+        except Exception:
+            # Fallback: coarse join; not guaranteed to be encoded
+            return "file://" + str(Path(p))
+
+    # -------------------- Graphviz visualization --------------------
+
+    def _build_graphviz(self, name: str = "trajectory", directory: Optional[str] = None):
+        """Build a Graphviz Digraph once; reused by to_graphviz/save_graphviz."""
+        from graphviz import Digraph
+
+        G = Digraph(name=name, filename=name, directory=directory)
+        G.attr(rankdir="TB")
+        G.attr("node", shape="box", style="filled")
+
+        # Root node
+        root_label = f"ROOT\nTask: {self.root.intent or 'Unknown'}"
+        if self.root.url:
+            root_label += f"\nURL: {self.root.url[:50]}..."
+        if getattr(self.root, "screenshot_path", None):
+            uri = self._as_file_uri(self.root.screenshot_path)
+            # Set both URL and href to maximize clickability across backends (pdf/svg)
+            G.node(self.root.node_id, root_label, URL=uri, href=uri)
+        else:
+            G.node(self.root.node_id, root_label, fillcolor="lightblue")
+
+        # Other nodes
+        for node in self.nodes:
+            if node.is_root():
+                continue
+            if node.is_state():
+                self._add_state_node_to_graphviz(G, node)  # type: ignore[arg-type]
+            elif isinstance(node, TrajCandidate):
+                self._add_candidate_node_to_graphviz(G, node)
+
+        # Edges
+        self._add_edges_to_graphviz_pure(G)
+
+        return G
+
     def to_graphviz(self, filename: str = "trajectory") -> str:
-        """Generate Graphviz DOT format trajectory graph."""
-        from graphviz import Digraph
-        
-        # Create Digraph
-        G = Digraph(filename, filename)
-        G.attr(rankdir="TB")
-        G.attr("node", shape="box", style="filled")
-        
-        # Add root node
-        root_label = f"ROOT\nTask: {self.root.intent or 'Unknown'}"
-        if self.root.url:
-            root_label += f"\nURL: {self.root.url[:50]}..."
-        
-        # Add screenshot if available (use file:// absolute URI so PDF link works)
-        if hasattr(self.root, 'screenshot_path') and self.root.screenshot_path:
-            try:
-                path = str(Path(self.root.screenshot_path).resolve())
-                uri = f"file://{path}"
-            except Exception:
-                uri = self.root.screenshot_path
-            G.node(self.root.node_id, root_label, URL=uri)
-        else:
-            G.node(self.root.node_id, root_label, fillcolor="lightblue")
-        
-        # Add all other nodes
-        for node in self.nodes:
-            if node.is_root():
-                continue  # Skip root, already added
-            
-            if node.is_state():
-                self._add_state_node_to_graphviz(G, node)
-            elif isinstance(node, TrajCandidate):
-                self._add_candidate_node_to_graphviz(G, node)
-        
-        # Add edges
-        self._add_edges_to_graphviz(G)
-        
+        """Return DOT source (no rendering)."""
+        G = self._build_graphviz(name=filename, directory=None)
         return G.source
-    
-    def save_graphviz(self, filename: str = "trajectory", output_dir: str = ".") -> str:
-        """Save Graphviz visualization to file."""
-        from graphviz import Digraph
-        
-        # Create Digraph
-        G = Digraph(filename, filename, directory=output_dir)
-        G.attr(rankdir="TB")
-        G.attr("node", shape="box", style="filled")
-        
-        # Add root node
-        root_label = f"ROOT\nTask: {self.root.intent or 'Unknown'}"
-        if self.root.url:
-            root_label += f"\nURL: {self.root.url[:50]}..."
-        
-        # Add screenshot if available
-        if hasattr(self.root, 'screenshot_path') and self.root.screenshot_path:
-            G.node(self.root.node_id, root_label, URL=self.root.screenshot_path)
-        else:
-            G.node(self.root.node_id, root_label, fillcolor="lightblue")
-        
-        # Add all other nodes
-        for node in self.nodes:
-            if node.is_root():
-                continue  # Skip root, already added
-            
-            if node.is_state():
-                self._add_state_node_to_graphviz(G, node)
-            elif isinstance(node, TrajCandidate):
-                # Render both selected and unselected candidates as nodes
-                self._add_candidate_node_to_graphviz(G, node)
-        
-        # Add edges
-        self._add_edges_to_graphviz(G)
-        
-        # Render the graph
-        output_path = G.render(format="pdf", cleanup=True)
+
+    def save_graphviz(self, filename: str = "trajectory", output_dir: str = ".", fmt: str = "pdf") -> str:
+        """Render and save the graph; return the output filepath."""
+        G = self._build_graphviz(name=filename, directory=output_dir)
+        output_path = G.render(format=fmt, cleanup=True)
         return output_path
-    
+
     def _add_state_node_to_graphviz(self, G, node: TrajState):
-        """Add a state node to Graphviz graph."""
+        """Add a state node (use canonical file:/// URI when screenshot exists)."""
         label = f"State {node.step}"
-        if node.url:
-            label += f"\nURL: {node.url[:50]}..."
-        
-        # Add screenshot if available (use file:// absolute URI)
         if node.screenshot_path:
-            try:
-                path = str(Path(node.screenshot_path).resolve())
-                uri = f"file://{path}"
-            except Exception:
-                uri = node.screenshot_path
-            G.node(node.node_id, label, URL=uri, fillcolor="lightgreen")
+            uri = self._as_file_uri(node.screenshot_path)
+            G.node(node.node_id, label, URL=uri, href=uri, fillcolor="lightgreen")
         else:
             G.node(node.node_id, label, fillcolor="lightgreen")
-    
+
     def _add_candidate_node_to_graphviz(self, G, node: TrajCandidate):
-        """Add a candidate node to Graphviz graph."""
-        # Determine color based on status
+        """Add a candidate node with styles reflecting selection status."""
         if node.is_selected():
-            fillcolor = "lightgreen"  # Selected candidates - green
+            fillcolor = "lightgreen"
             style = "filled,bold"
         else:
-            fillcolor = "lightyellow"  # Regular candidates - yellow
+            fillcolor = "lightyellow"
             style = "filled,dashed"
-        
-        # Determine display index (prefer numeric suffix from id)
+
         candidate_index = self._get_candidate_display_index(node)
-        
-        # Create label with meaningful information
+
         if node.meaning and node.meaning.strip():
-            # Use meaning as the primary display text
             label = f"Candidate {candidate_index}\n{node.meaning}"
         elif node.action:
-            # Fallback to action if no meaningful meaning
             label = f"Candidate {candidate_index}\nAction: {node.action}"
         else:
             label = f"Candidate {candidate_index}\nUnknown action"
-        
-        # Use original node_id to avoid remapping inconsistencies with edges
+
         G.node(node.node_id, label, fillcolor=fillcolor, style=style)
-    
-    def _add_edges_to_graphviz(self, G):
-        """Add edges to Graphviz graph."""
+
+    def _add_edges_to_graphviz_pure(self, G):
+        """Add edges; compute first_state once to avoid redundant scans."""
+        first_state = self._get_first_state()
+        if first_state:
+            G.edge(self.root.node_id, first_state.node_id, label="start", style="bold")
+
         for node in self.nodes:
-            if node.is_root():
-                # Add edge from root to first state
-                first_state = self._get_first_state()
-                if first_state:
-                    G.edge(self.root.node_id, first_state.node_id, label="start", style="bold")
-            elif node.is_state():
-                # Add edges from state to its candidates
-                for candidate_id in node.candidates:
-                    candidate = self.get_node(candidate_id)
-                    if candidate and isinstance(candidate, TrajCandidate):
-                        # Determine edge style based on selection
-                        if candidate.is_selected():
-                            G.edge(node.node_id, candidate_id, label="selected", style="bold", color="green")
-                        else:
-                            G.edge(node.node_id, candidate_id, label="candidate", style="dashed", color="gray")
-                
-                # Add edge from selected candidates to next state
-                selected_candidates = self._get_selected_candidates_for_state(node)
-                if selected_candidates:
-                    next_state = self._get_next_state(node.step)
-                    if next_state:
-                        for selected_candidate in selected_candidates:
-                            G.edge(selected_candidate.node_id, next_state.node_id, label="execute", style="bold", color="blue")
-    
+            if not node.is_state():
+                continue
+
+            # state -> candidate(s)
+            for candidate_id in getattr(node, "candidates", []):
+                candidate = self.get_node(candidate_id)
+                if candidate and isinstance(candidate, TrajCandidate):
+                    if candidate.is_selected():
+                        G.edge(node.node_id, candidate_id, label="selected", style="bold", color="green")
+                    else:
+                        G.edge(node.node_id, candidate_id, label="candidate", style="dashed", color="gray")
+
+            # selected candidate(s) -> next state
+            selected_candidates = self._get_selected_candidates_for_state(node)  # type: ignore[arg-type]
+            if selected_candidates:
+                next_state = self._get_next_state(node.step)  # type: ignore[arg-type]
+                if next_state:
+                    for selected_candidate in selected_candidates:
+                        G.edge(selected_candidate.node_id, next_state.node_id, label="execute", style="bold", color="blue")
+
     def _get_first_state(self) -> Optional[TrajState]:
-        """Get the first state node (step 1)."""
-        for node in self.nodes:
-            if node.is_state() and node.step == 1:
-                return node
-        return None
-    
+        """Return the state with the smallest step (supports step starting from 0 or 1)."""
+        states = [n for n in self.nodes if n.is_state()]
+        if not states:
+            return None
+        return min(states, key=lambda s: s.step)  # type: ignore[arg-type]
+
     def _get_selected_candidate_for_state(self, state: TrajState) -> Optional[TrajCandidate]:
-        """Get the selected candidate for a given state."""
-        for candidate_id in state.candidates:
+        """Return the single selected candidate under this state, if any."""
+        for candidate_id in getattr(state, "candidates", []):
             candidate = self.get_node(candidate_id)
-            if candidate and candidate.is_selected():
+            if candidate and isinstance(candidate, TrajCandidate) and candidate.is_selected():
                 return candidate
         return None
-    
+
     def _get_selected_candidates_for_state(self, state: TrajState) -> List[TrajCandidate]:
-        """Get all selected candidates for a given state."""
-        selected_candidates = []
-        for candidate_id in state.candidates:
+        """Return all selected candidates under this state."""
+        selected_candidates: List[TrajCandidate] = []
+        for candidate_id in getattr(state, "candidates", []):
             candidate = self.get_node(candidate_id)
-            if candidate and candidate.is_selected():
+            if candidate and isinstance(candidate, TrajCandidate) and candidate.is_selected():
                 selected_candidates.append(candidate)
         return selected_candidates
-    
+
     def _get_next_state(self, current_step: int) -> Optional[TrajState]:
-        """Get the next state node after the given step."""
+        """Return the state whose step is current_step + 1, if present."""
         for node in self.nodes:
             if node.is_state() and node.step == current_step + 1:
-                return node
+                return node  # type: ignore[return-value]
         return None
-    
-    # ---- Tree manipulation methods for RuntimeManager ----
-    
+
+    # -------------------- Runtime tree operations --------------------
+
     def add_node(self, node: TrajNode) -> None:
-        """Add a node to the tree."""
         self.nodes.append(node)
-    
-    def add_state_node(self, node_id: str, parent_id: str, step: int, url: Optional[str] = None, 
-                      observation_hash: Optional[str] = None, obs_nodes_info: Optional[Dict[str, Any]] = None,
-                      screenshot_path: Optional[str] = None) -> TrajState:
-        """Add a new state node to the tree."""
+
+    def add_state_node(
+        self,
+        node_id: str,
+        parent_id: str,
+        step: int,
+        url: Optional[str] = None,
+        observation_hash: Optional[str] = None,
+        obs_nodes_info: Optional[Dict[str, Any]] = None,
+        screenshot_path: Optional[str] = None,
+    ) -> TrajState:
         state_node = TrajState(
             node_id=node_id,
             parent_id=parent_id,
@@ -429,41 +374,55 @@ class TrajectoryTree:
             observation_hash=observation_hash,
             obs_nodes_info=obs_nodes_info,
             screenshot_path=screenshot_path,
-            candidates=[]
+            candidates=[],
         )
         self.add_node(state_node)
         return state_node
-    
-    def add_candidate_node(self, node_id: str, parent_id: str, thought: Optional[str] = None,
-                          action: Optional[str] = None, meaning: Optional[str] = None,
-                          status: CandidateNodeStatus = CandidateNodeStatus.CANDIDATE) -> TrajCandidate:
-        """Add a new candidate node to the tree."""
+
+    def add_candidate_node(
+        self,
+        node_id: str,
+        parent_id: str,
+        thought: Optional[str] = None,
+        action: Optional[str] = None,
+        meaning: Optional[str] = None,
+        status: CandidateNodeStatus = CandidateNodeStatus.CANDIDATE,
+    ) -> TrajCandidate:
         candidate_node = TrajCandidate(
             node_id=node_id,
             parent_id=parent_id,
             thought=thought,
             action=action,
             meaning=meaning,
-            status=status
+            status=status,
         )
         self.add_node(candidate_node)
         return candidate_node
-    
+
     def add_candidate_to_state(self, state_node_id: str, candidate_node_id: str) -> None:
-        """Add a candidate node to a state node's candidates list."""
         state_node = self.get_node(state_node_id)
-        if state_node and state_node.is_state():
-            if candidate_node_id not in state_node.candidates:
-                state_node.candidates.append(candidate_node_id)
-    
+        if state_node and state_node.is_state():  # type: ignore[truthy-function]
+            if candidate_node_id not in getattr(state_node, "candidates", []):
+                state_node.candidates.append(candidate_node_id)  # type: ignore[union-attr]
+
     def mark_candidate_as_selected(self, candidate_node_id: str) -> None:
-        """Mark a candidate node as selected."""
+        """Mark a candidate node as SELECTED (idempotent)."""
         candidate_node = self.get_node(candidate_node_id)
-        if candidate_node and candidate_node.is_candidate():
+        if candidate_node and isinstance(candidate_node, TrajCandidate):
             candidate_node.status = CandidateNodeStatus.SELECTED
-    
+
+    def set_selected_candidate(self, parent_state_id: str, candidate_node_id: str) -> None:
+        """Ensure there is at most one SELECTED candidate under a state."""
+        state = self.get_node(parent_state_id)
+        if state and state.is_state():  # type: ignore[truthy-function]
+            for cid in getattr(state, "candidates", []):
+                cand = self.get_node(cid)
+                if isinstance(cand, TrajCandidate):
+                    cand.status = CandidateNodeStatus.CANDIDATE
+            self.mark_candidate_as_selected(candidate_node_id)
+
     def _get_candidate_display_index(self, node: TrajCandidate) -> int:
-        """Get candidate display index. Prefer numeric suffix in node_id (candidate_#)."""
+        """Display index strategy: prefer numeric suffix in node_id (candidate_#), otherwise by encounter order."""
         try:
             import re
             m = re.search(r"candidate_(\d+)$", node.node_id)
@@ -471,7 +430,6 @@ class TrajectoryTree:
                 return int(m.group(1))
         except Exception:
             pass
-        # Fallback: position among all TrajCandidate nodes (both selected and unselected)
         all_candidates: List[TrajCandidate] = [n for n in self.nodes if isinstance(n, TrajCandidate)]
         for i, cand in enumerate(all_candidates):
             if cand.node_id == node.node_id:
