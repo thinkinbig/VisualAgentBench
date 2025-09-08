@@ -246,9 +246,14 @@ class TrajectoryTree:
         if self.root.url:
             root_label += f"\nURL: {self.root.url[:50]}..."
         
-        # Add screenshot if available
+        # Add screenshot if available (use file:// absolute URI so PDF link works)
         if hasattr(self.root, 'screenshot_path') and self.root.screenshot_path:
-            G.node(self.root.node_id, root_label, URL=self.root.screenshot_path)
+            try:
+                path = str(Path(self.root.screenshot_path).resolve())
+                uri = f"file://{path}"
+            except Exception:
+                uri = self.root.screenshot_path
+            G.node(self.root.node_id, root_label, URL=uri)
         else:
             G.node(self.root.node_id, root_label, fillcolor="lightblue")
         
@@ -259,7 +264,7 @@ class TrajectoryTree:
             
             if node.is_state():
                 self._add_state_node_to_graphviz(G, node)
-            elif node.is_candidate():
+            elif isinstance(node, TrajCandidate):
                 self._add_candidate_node_to_graphviz(G, node)
         
         # Add edges
@@ -294,7 +299,8 @@ class TrajectoryTree:
             
             if node.is_state():
                 self._add_state_node_to_graphviz(G, node)
-            elif node.is_candidate():
+            elif isinstance(node, TrajCandidate):
+                # Render both selected and unselected candidates as nodes
                 self._add_candidate_node_to_graphviz(G, node)
         
         # Add edges
@@ -310,9 +316,14 @@ class TrajectoryTree:
         if node.url:
             label += f"\nURL: {node.url[:50]}..."
         
-        # Add screenshot if available
+        # Add screenshot if available (use file:// absolute URI)
         if node.screenshot_path:
-            G.node(node.node_id, label, URL=node.screenshot_path, fillcolor="lightgreen")
+            try:
+                path = str(Path(node.screenshot_path).resolve())
+                uri = f"file://{path}"
+            except Exception:
+                uri = node.screenshot_path
+            G.node(node.node_id, label, URL=uri, fillcolor="lightgreen")
         else:
             G.node(node.node_id, label, fillcolor="lightgreen")
     
@@ -326,9 +337,8 @@ class TrajectoryTree:
             fillcolor = "lightyellow"  # Regular candidates - yellow
             style = "filled,dashed"
         
-        # Create simplified node ID
-        candidate_index = self._get_candidate_index(node)
-        simple_id = f"candidate_{candidate_index}"
+        # Determine display index (prefer numeric suffix from id)
+        candidate_index = self._get_candidate_display_index(node)
         
         # Create label with meaningful information
         if node.meaning and node.meaning.strip():
@@ -340,12 +350,8 @@ class TrajectoryTree:
         else:
             label = f"Candidate {candidate_index}\nUnknown action"
         
-        G.node(simple_id, label, fillcolor=fillcolor, style=style)
-        
-        # Store mapping for edge creation
-        if not hasattr(self, '_node_id_mapping'):
-            self._node_id_mapping = {}
-        self._node_id_mapping[node.node_id] = simple_id
+        # Use original node_id to avoid remapping inconsistencies with edges
+        G.node(node.node_id, label, fillcolor=fillcolor, style=style)
     
     def _add_edges_to_graphviz(self, G):
         """Add edges to Graphviz graph."""
@@ -359,7 +365,7 @@ class TrajectoryTree:
                 # Add edges from state to its candidates
                 for candidate_id in node.candidates:
                     candidate = self.get_node(candidate_id)
-                    if candidate and candidate.is_candidate():
+                    if candidate and isinstance(candidate, TrajCandidate):
                         # Determine edge style based on selection
                         if candidate.is_selected():
                             G.edge(node.node_id, candidate_id, label="selected", style="bold", color="green")
@@ -456,10 +462,18 @@ class TrajectoryTree:
         if candidate_node and candidate_node.is_candidate():
             candidate_node.status = CandidateNodeStatus.SELECTED
     
-    def _get_candidate_index(self, node: TrajCandidate) -> int:
-        """Get candidate index for display purposes."""
-        candidates = self.get_candidate_nodes()
-        for i, candidate in enumerate(candidates):
-            if candidate.node_id == node.node_id:
+    def _get_candidate_display_index(self, node: TrajCandidate) -> int:
+        """Get candidate display index. Prefer numeric suffix in node_id (candidate_#)."""
+        try:
+            import re
+            m = re.search(r"candidate_(\d+)$", node.node_id)
+            if m:
+                return int(m.group(1))
+        except Exception:
+            pass
+        # Fallback: position among all TrajCandidate nodes (both selected and unselected)
+        all_candidates: List[TrajCandidate] = [n for n in self.nodes if isinstance(n, TrajCandidate)]
+        for i, cand in enumerate(all_candidates):
+            if cand.node_id == node.node_id:
                 return i + 1
         return 0

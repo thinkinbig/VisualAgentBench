@@ -11,11 +11,11 @@
     },
     "nucleus_sampling_config": {
     "enabled": true,
-    "top_p_range": [0.90, 0.96],
-    "temperature_range": [0.25, 0.45],
+    "top_p_range": [0.95, 1.0],
+    "temperature_range": [0.6, 0.9],
     "diversity_strategy": "random",
     "fallback_top_p": 1.0,
-    "fallback_temperature": 0.15
+    "fallback_temperature": 0.3
     },
     "reward_lm_config": {
         "provider": "openai",
@@ -27,8 +27,8 @@
         }
     },
     "action_set_tag": "id_accessibility_tree",
-    "num_samples": 10,
-    "num_calls": 5,
+    "num_samples": 16,
+    "num_calls": 6,
     "max_tournament_candidates": 16,
     "max_obs_length": 2048,
     "max_retry": 3
