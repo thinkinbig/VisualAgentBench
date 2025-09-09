@@ -4,6 +4,7 @@ import uuid
 import os
 import json
 import re
+from pathlib import Path
 
 from llms.types import ThoughtActionPair
 
@@ -48,6 +49,12 @@ from .types import (
     CheckpointInfo,
 )
 from .parsers import ActionValidator
+try:
+    import numpy as np  # type: ignore
+    from PIL import Image  # type: ignore
+except Exception:
+    np = None  # type: ignore
+    Image = None  # type: ignore
 
 class RuntimeManager:
     """Encapsulates all AgentRuntime mutations and environment-bridging state updates."""
@@ -122,9 +129,9 @@ class RuntimeManager:
             # Initialize from environment once to obtain URL + AXTREE
             start_url = meta_data.get("start_url") or meta_data.get("current_url")
             try:
-                _, info = self._env.reset()  # type: ignore[misc]
+                obs_image, info = self._env.reset()  # type: ignore[misc]
             except TypeError:
-                _, info = self._env.reset()  # type: ignore[misc]
+                obs_image, info = self._env.reset()  # type: ignore[misc]
 
             current_url = extract_current_url(info, start_url)
             obs_nodes = extract_obs_nodes_info(info)
@@ -139,8 +146,58 @@ class RuntimeManager:
                 obs_nodes = {}
             observation_text = self.compose_observation_from_nodes(obs_nodes)
 
-            # Update checkpoint (capture screenshot at step 0 so root has an image)
-            screenshot_path = self._save_current_screenshot(step=self.get_step())
+            # Update checkpoint using browser page screenshot (step 0)
+            screenshot_path = None
+            try:
+                if self._env and hasattr(self._env, 'page') and self._env.page:
+                    # Ensure the page is actually loaded; if blank, navigate to start_url
+                    try:
+                        page_url = getattr(self._env.page, 'url', '') or ''
+                        if (not page_url) or str(page_url).strip().lower().startswith("about:blank"):
+                            if start_url:
+                                self._env.page.goto(start_url)
+                        # Deterministic waits
+                        try:
+                            self._env.page.wait_for_load_state("domcontentloaded")
+                        except Exception:
+                            pass
+                        try:
+                            self._env.page.wait_for_load_state("networkidle", timeout=2000)
+                        except Exception:
+                            try:
+                                self._env.page.wait_for_timeout(200)
+                            except Exception:
+                                pass
+                    except Exception:
+                        pass
+                    # Ensure screenshots directory exists
+                    screenshots_dir = os.path.join(os.path.dirname(__file__), "..", "outputs", "screenshots")
+                    os.makedirs(screenshots_dir, exist_ok=True)
+                    # Get run_id from trajectory tree
+                    run_id = "default_run"
+                    if hasattr(self, '_trajectory_tree') and self._trajectory_tree:
+                        run_id = self._trajectory_tree.get_run_id()
+                    screenshot_filename = f"screenshot_{run_id}_step_0.png"
+                    screenshot_path = os.path.abspath(os.path.join(screenshots_dir, screenshot_filename))
+                    # Use browser page screenshot method (same as run.py) with retry
+                    try:
+                        _ = self._env.page.viewport_size
+                        self._env.page.screenshot(path="/dev/null")
+                        self._env.page.screenshot(path=screenshot_path)
+                        try:
+                            import os as _os
+                            if (not _os.path.exists(screenshot_path)) or (_os.path.getsize(screenshot_path) == 0):
+                                self._env.page.wait_for_timeout(250)
+                                self._env.page.screenshot(path=screenshot_path)
+                        except Exception:
+                            pass
+                        logging.getLogger("reward_guided_logger").info(f"[SCREENSHOT_SAVED] {screenshot_path}")
+                    except Exception as e:
+                        logging.getLogger("reward_guided_logger").warning(f"[SCREENSHOT_FAILED] {e}")
+                        screenshot_path = None
+            except Exception as e:
+                logging.getLogger("reward_guided_logger").warning(f"[SCREENSHOT_ERROR] {e}")
+                screenshot_path = None
             cp = CheckpointInfo(
                 step=self._runtime.step,
                 url=current_url or "",
@@ -282,45 +339,14 @@ class RuntimeManager:
         
         return "\n".join(lines)
 
-    def _get_current_screenshot_path(self) -> Optional[str]:
-        """Get the current screenshot path if available."""
+    def _get_last_checkpoint_screenshot_path(self) -> Optional[str]:
+        """Return the screenshot path from the latest checkpoint if present."""
         try:
-            if hasattr(self._env, 'page') and self._env.page:
-                # Create screenshots directory
-                screenshots_dir = os.path.join(os.path.dirname(__file__), "..", "outputs", "screenshots")
-                os.makedirs(screenshots_dir, exist_ok=True)
-                
-                # Generate screenshot filename
-                run_id = "run"
-                screenshot_filename = f"screenshot_{run_id}_step_{self.get_step()}.png"
-                return os.path.abspath(os.path.join(screenshots_dir, screenshot_filename))
+            cp = self.get_checkpoint()
+            if cp and getattr(cp, "screenshot_path", None):
+                return cp.screenshot_path  # type: ignore[return-value]
         except Exception:
             pass
-        return None
-
-    def _save_current_screenshot(self, step: Optional[int] = None) -> Optional[str]:
-        """Capture and save a screenshot for the current page; return file path or None."""
-        try:
-            if hasattr(self._env, 'page') and self._env.page:
-                screenshots_dir = os.path.join(os.path.dirname(__file__), "..", "outputs", "screenshots")
-                os.makedirs(screenshots_dir, exist_ok=True)
-                run_id = "run"
-                current_step = self.get_step() if step is None else int(step)
-                screenshot_filename = f"screenshot_{run_id}_step_{current_step}.png"
-                screenshot_path = os.path.abspath(os.path.join(screenshots_dir, screenshot_filename))
-                screenshot_bytes = self._env.page.screenshot()
-                with open(screenshot_path, 'wb') as f:
-                    f.write(screenshot_bytes)
-                try:
-                    logging.getLogger("reward_guided_logger").info(f"[SCREENSHOT_SAVED] {screenshot_path}")
-                except Exception:
-                    pass
-                return screenshot_path
-        except Exception as e:
-            try:
-                logging.getLogger("reward_guided_logger").warning(f"[SCREENSHOT_SAVE_FAILED] {e}")
-            except Exception:
-                pass
         return None
     
 
@@ -435,33 +461,51 @@ class RuntimeManager:
         obs_nodes = extract_obs_nodes_info(info)
         observation_text = self.compose_observation_from_nodes(obs_nodes)
 
-        # Save screenshot if available
+        # Save screenshot from browser page
         screenshot_path = None
         try:
-            if hasattr(self._env, 'page') and self._env.page:
-                # Create screenshots directory
-                screenshots_dir = os.path.join(os.path.dirname(__file__), "..", "outputs", "screenshots")
-                os.makedirs(screenshots_dir, exist_ok=True)
-                
-                # Generate screenshot filename
-                run_id = "run"
-                screenshot_filename = f"screenshot_{run_id}_step_{self.get_step()}.png"
-                screenshot_path = os.path.join(screenshots_dir, screenshot_filename)
-                
-                # Take screenshot
-                screenshot_bytes = self._env.page.screenshot()
-                with open(screenshot_path, 'wb') as f:
-                    f.write(screenshot_bytes)
-                
+            if self._env and hasattr(self._env, 'page') and self._env.page:
+                # Deterministic waits before capture (avoid blank/half-rendered pages)
                 try:
-                    logging.getLogger("reward_guided_logger").info(f"[SCREENSHOT_SAVED] {screenshot_path}")
+                    self._env.page.wait_for_load_state("domcontentloaded")
                 except Exception:
                     pass
+                try:
+                    self._env.page.wait_for_load_state("networkidle", timeout=2000)
+                except Exception:
+                    try:
+                        self._env.page.wait_for_timeout(200)
+                    except Exception:
+                        pass
+                screenshots_dir = os.path.join(os.path.dirname(__file__), "..", "outputs", "screenshots")
+                os.makedirs(screenshots_dir, exist_ok=True)
+                # Get run_id from trajectory tree
+                run_id = "default_run"
+                if hasattr(self, '_trajectory_tree') and self._trajectory_tree:
+                    run_id = self._trajectory_tree.get_run_id()
+                # Use current step - 1 for screenshot filename since we're capturing the state after executing the action
+                current_step = max(0, self.get_step() - 1)
+                screenshot_filename = f"screenshot_{run_id}_step_{current_step}.png"
+                screenshot_path = os.path.join(screenshots_dir, screenshot_filename)
+                try:
+                    # Two-phase capture + verify non-empty
+                    _ = self._env.page.viewport_size
+                    self._env.page.screenshot(path="/dev/null")
+                    self._env.page.screenshot(path=screenshot_path)
+                    try:
+                        import os as _os
+                        if (not _os.path.exists(screenshot_path)) or (_os.path.getsize(screenshot_path) == 0):
+                            self._env.page.wait_for_timeout(250)
+                            self._env.page.screenshot(path=screenshot_path)
+                    except Exception:
+                        pass
+                    logging.getLogger("reward_guided_logger").info(f"[SCREENSHOT_SAVED] {screenshot_path}")
+                except Exception as e:
+                    logging.getLogger("reward_guided_logger").warning(f"[SCREENSHOT_FAILED] {e}")
+                    screenshot_path = None
         except Exception as e:
-            try:
-                logging.getLogger("reward_guided_logger").warning(f"[SCREENSHOT_SAVE_FAILED] {e}")
-            except Exception:
-                pass
+            logging.getLogger("reward_guided_logger").warning(f"[SCREENSHOT_ERROR] {e}")
+            screenshot_path = None
 
         cp = CheckpointInfo(
             step=self._runtime.step,
@@ -588,7 +632,7 @@ class RuntimeManager:
             parent_id=None,
             intent=intent,
             run_id=run_id or "default_run",
-            screenshot_path=self._get_current_screenshot_path()
+            screenshot_path=self._get_last_checkpoint_screenshot_path()
         )
         
         # Initialize trajectory tree
@@ -648,7 +692,7 @@ class RuntimeManager:
             if prev_state is None and prev_step == 0:
                 # Create a step-0 state under root if missing
                 add_id = f"state_0_{uuid.uuid4().hex[:8]}"
-                screenshot_path = self._save_current_screenshot(step=0)
+                screenshot_path = self._get_last_checkpoint_screenshot_path()
                 state_node = self._trajectory_tree.add_state_node(
                     node_id=add_id,
                     parent_id="root",
@@ -689,7 +733,7 @@ class RuntimeManager:
             url=url,
             observation_hash=observation_hash,
             obs_nodes_info=obs_nodes_info,
-            screenshot_path=self._get_current_screenshot_path()
+            screenshot_path=self._get_last_checkpoint_screenshot_path()
         )
         
         # Add candidate nodes. If the parent is not a state (e.g., root), attach them to the

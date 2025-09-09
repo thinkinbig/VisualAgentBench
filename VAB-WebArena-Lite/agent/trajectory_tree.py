@@ -3,6 +3,8 @@ import json
 import base64
 import mimetypes
 import textwrap
+import time
+import random
 from pathlib import Path
 from abc import abstractmethod
 from pydantic import BaseModel, Field
@@ -102,6 +104,24 @@ class TrajectoryTree:
     def __init__(self, root: TrajRoot):
         self.root = root
         self.nodes: List[TrajNode] = [root]  # Include root in nodes list
+        
+        # Ensure root has a unique run_id
+        if not self.root.run_id or self.root.run_id == "default_run":
+            self.root.run_id = self._generate_run_id()
+
+    def _generate_run_id(self) -> str:
+        """Generate a unique run_id with timestamp and random component."""
+        timestamp = time.strftime('%Y%m%d_%H%M%S')
+        random_suffix = random.randint(1000, 9999)
+        return f"run_{timestamp}_{random_suffix}"
+
+    def get_run_id(self) -> str:
+        """Get the run_id from the root node."""
+        return self.root.run_id
+
+    def set_run_id(self, run_id: str) -> None:
+        """Set the run_id in the root node."""
+        self.root.run_id = run_id
 
     # -------------------- Serialization --------------------
 
@@ -284,12 +304,30 @@ class TrajectoryTree:
 
         candidate_index = self._get_candidate_display_index(node)
 
+        # Build label with thought, meaning, and action
+        label_parts = [f"Candidate {candidate_index}"]
+        
+        # Add thought if available
+        if node.thought and node.thought.strip():
+            # Truncate thought if too long for display
+            thought_text = node.thought.strip()
+            if len(thought_text) > 100:
+                thought_text = thought_text[:97] + "..."
+            label_parts.append(f"Thought: {thought_text}")
+        
+        # Add meaning if available
         if node.meaning and node.meaning.strip():
-            label = f"Candidate {candidate_index}\n{node.meaning}"
-        elif node.action:
-            label = f"Candidate {candidate_index}\nAction: {node.action}"
-        else:
-            label = f"Candidate {candidate_index}\nUnknown action"
+            label_parts.append(f"Meaning: {node.meaning}")
+        
+        # Add action if available
+        if node.action and node.action.strip():
+            label_parts.append(f"Action: {node.action}")
+        
+        # If no meaningful content, show unknown
+        if len(label_parts) == 1:
+            label_parts.append("Unknown action")
+        
+        label = "\n".join(label_parts)
 
         G.node(node.node_id, label, fillcolor=fillcolor, style=style)
 
